@@ -286,6 +286,23 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   untranslated instruction was left among the 709 shaders that run used.
 - A first guess (the provoking vertex, register `0x5A1`) was ruled out: the game sets it to "last", GL's default.
 
+### Bug 18: black horizontal stripes across the sea at Minigame Bay (fixed)
+- Found in the 2026-11-26 minigame review: on the Free Play pier and the minigame list, the open sea behind the pier
+  was banded with black rows, denser towards the horizon. The beach view of the same visit was clean.
+- F5 trace: the bands appear at draw `vs=01f78bc6b3571c2b fs=5c4e5aab06012d80` (the sea surface) on the 1152x648
+  scene target. Its slot 0 is the bound depth buffer (`501400000`) read through TIC format `0x0e` (G24R8) with the R
+  component UINT and the swizzle taking R: the stencil, as an integer. The shader does `texelFetch`, tests
+  `value & 0x80` and discards where it's set (stencil bit 7 masks the pier and characters out of the water).
+- Cause: GL returns the depth from a depth-stencil texture unless `DEPTH_STENCIL_TEXTURE_MODE` is `STENCIL_INDEX`,
+  and the translator declared a float sampler. The shader tested bit 7 of the depth's float bits, which flips with
+  distance: black rows wherever the bit was set.
+- Fix (`gpu_gl.c`): a depth-stencil texture read through a TIC whose first swizzle source is a UINT component is a
+  stencil read. The fragment shader key marks that slot as an integer texture (`usampler2D`), and the bind uses a
+  texture view of the depth texture with `DEPTH_STENCIL_TEXTURE_MODE = STENCIL_INDEX` (kept per texture, nearest
+  filtering). `SWR_NO_STENCIL_VIEW=1` turns it off.
+- Result: the sea renders clean on the pier and behind the minigame list. The log notes the first stencil views
+  (`gpu: depth-stencil ... read as stencil`).
+
 ### Build fixes (the source as shipped didn't build with the bundled GCC 16)
 - `plat.c`: missing `#include <math.h>`; `svc_core.c`: `ipc_warn_once` used before its declaration.
 - `plat.c`: prebuilt `vp9/win/libvpx.a` calls `_setjmp`, which the UCRT import library no longer exports; a jump shim
@@ -335,6 +352,7 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_SHOT8_FLAG=N` | while a file `burst.flag` exists in the game folder, an F8 capture every N presents (a test script creates it when OCR sees the screen it wants) |
 | `SWR_TRACE_EVERY=N[@s[,max]]` | an F5 trace every N presents from s seconds, up to max (default 20) |
 | (F5 trace) | line draws also list the line widths, the shader stage registers and the first 16 vertices' float attributes; every draw lists the provoking vertex |
+| `SWR_NO_STENCIL_VIEW=1` | read depth-stencil textures as depth even when the TIC asks for the stencil (pre-bug-18) |
 | `SWR_KEEP_DRAWN_FS=<fs>` / `0` | which copy shader protects its RT from a clear later in the frame (bug 12); 0 = off |
 | `_work/sdis.py <sh_*.bin>` | rough listing of a dumped shader (word index = `case N` in the GLSL, guards, CC tests) |
 | (F5 trace) | each draw also lists scissor, clip control, depth bias, stencil function, vertex attribute formats; a skipped target-less draw lists its targets, stream-out state and storage writes and dumps its vertex shader |
@@ -420,6 +438,21 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 | 2026-11-26 | finale (owner-reviewed) | "Congratulations!" drawn with letters missing ("n rat ations!") | open: a burst over the finale is still to be taken (letters may pop in one by one) |
 | 2026-11-26 | Boo steal (owner-reviewed) | Boo see-through with Waluigi in a bubble during the steal; should be solid | probably the same crossfade (the frame also shows the board doubled); not captured frame by frame yet |
 | 2026-11-26 | transitions (owner-reviewed) | fully white frames before minigames and after a duel | frame by frame: before a minigame an iris closes to white, the screen stays white ~1.1 s while the minigame loads, then fades in; after practice a 0.4 s fade through white. Load time may make the white hold longer than on the console |
+
+### Owner manual checks (open)
+
+The owner is checking these by hand against the console. Results go back into the table above.
+Review images are in `_work/save-library/review-2026-11-26` (local only, not committed).
+
+| # | Check | What to compare | Owner result |
+| --- | --- | --- | --- |
+| M1 | Star Graph (finale and results) | player lines draw on both screens after bug 17 | pending |
+| M2 | Turn change | the console blends the old player's shot into the next player's for about 1/3 s (see-through characters and karts), rather than cutting | pending |
+| M3 | Boo steal | Boo and the bubbled character stay solid; the see-through look is only a short blend | pending |
+| M4 | Turn banner | bars slide in empty first, then the text types in | pending |
+| M5 | Bowser Space menu | the highlighted row ("Lose 15 coins") keeps its text | pending |
+| M6 | Finale | "Congratulations!" shows all letters once its animation ends | pending |
+| M7 | Minigame transitions | the iris closes to white and stays white about 1.1 s while the minigame loads; after practice a 0.4 s fade through white | pending |
 
 ## 8. Next steps
 1. Board: a waiting player (Mario, on a space further down the path) looked see-through. Check whether that's the

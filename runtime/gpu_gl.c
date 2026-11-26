@@ -209,6 +209,7 @@ typedef struct Tex {
   u32 bl, bh, bd, pitch; u64 size; u32 tws;   /* tws: TIC tile_width_spacing, array layers are aligned to 2^(9+tws+bh+bd) */
   GLuint id; u64 hash; int is_rt, gpu_written; u32 frame_checked, last_used; GLint swz[4]; u64 tr_last; u32 stable, next_check; GLuint view; GLenum view_target; GLint vswz[4]; u32 wgen, crop_gen; u64 wfs; u32 wframe; struct Tex* crop; struct Tex* lay; struct Tex* vol; int skipclr, zero3d; u64 alias; u64 shash; u32 tfull; u64 wcpu, wsig; u32 wchk;
   GLuint zc; u64 zc_hash; u32 zc_wgen, zc_ok;   /* depth copy for shadow samplers (zc_ok: 1 made, 2 failed) */
+  GLuint sv, sv_src;   /* stencil view of a depth-stencil texture (made for sv_src, the storage it was made from) */
   u64* seen; u32 nseen;   /* assembled textures: which RT (and write count) each layer/level was copied from */
   struct RtHist* hist; u32 nhist;   /* last draws into this RT (small RTs only), for F5 traces */
   u32 huge_w, huge_h;   /* a texture too big for the host: the size the game gave it */
@@ -2316,6 +2317,31 @@ static GLuint tex_view(Tex* t, GLenum want){
   t->vswz[0]=GL_RED; t->vswz[1]=GL_GREEN; t->vswz[2]=GL_BLUE; t->vswz[3]=GL_ALPHA;
   return v; }
 
+/* a depth-stencil texture read through a TIC whose first swizzle source is a UINT component (G24R8 with R UINT,
+   S8Z24, Z24S8 with G UINT...) reads the stencil, as an integer. GL gives the depth unless the texture's
+   DEPTH_STENCIL_TEXTURE_MODE is STENCIL_INDEX, so those reads get a stencil view. Super Mario Party Jamboree's sea
+   discards where stencil bit 7 is set: read as depth that bit flipped with distance into black stripes */
+static int tic_stencil_read(const u32* tic, const Tex* t){
+  if(!t || !t->f.depth || (t->f.ifmt!=GL_DEPTH24_STENCIL8 && t->f.ifmt!=GL_DEPTH32F_STENCIL8)) return 0;
+  u32 src=(tic[0]>>19)&7; if(src<2 || src>5) return 0;
+  return ((tic[0]>>(7+3*(src-2)))&7)==4; }
+
+static GLuint stencil_view(Tex* t){
+  static int off=-1; if(off<0) off=getenv("SWR_NO_STENCIL_VIEW")!=NULL;
+  if(off || !p_tview || !t || t->target!=GL_TEXTURE_2D) return 0;
+  if(t->sv && t->sv_src==t->id) return t->sv;
+  if(!t->sv && t->sv_src==~t->id) return 0;   /* failed for this storage before */
+  if(t->sv){ glDeleteTextures(1,&t->sv); t->sv=0; }
+  for(int k=0;k<8 && glGetError()!=GL_NO_ERROR;k++){}   /* an older error would read as this view failing */
+  GLuint v=0; glGenTextures(1,&v); p_tview(v,GL_TEXTURE_2D,t->id,t->f.ifmt,0,1,0,1);
+  GLenum e=glGetError(); if(e!=GL_NO_ERROR){ glDeleteTextures(1,&v); t->sv_src=~t->id; static int said; if(!said){ said=1; LOG("gpu: stencil view of %llx failed (GL error %x)\n",(unsigned long long)t->gva,e); } return 0; }
+  if(g_scratch_unit>=0) glActiveTexture(GL_TEXTURE0+g_scratch_unit);
+  glBindTexture(GL_TEXTURE_2D,v); glTexParameteri(GL_TEXTURE_2D,GL_DEPTH_STENCIL_TEXTURE_MODE,GL_STENCIL_INDEX);
+  glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAX_LEVEL,0);
+  t->sv=v; t->sv_src=t->id;
+  static int said; if(said<4){ said++; LOG("gpu: depth-stencil %llx (%ux%u) read as stencil: using a stencil view\n",(unsigned long long)t->gva,t->w,t->h); }
+  return v; }
+
 static void mb_reset(void){ g_tb_ok[0]=g_tb_ok[1]=g_tb_ok[2]=0; if(g_scratch_unit>=0) glActiveTexture(GL_TEXTURE0+g_scratch_unit); }
 
 static int ifmt_signed(GLenum f){ return f==GL_RGBA8I||f==GL_RGBA16I||f==GL_RGBA32I||f==GL_RG8I||f==GL_RG16I||f==GL_RG32I||f==GL_R8I||f==GL_R16I||f==GL_R32I; }
@@ -2385,7 +2411,7 @@ static Sh* fs_get_keyed(GpuChannel* ch, u64 addr){
     for(int i=0;i<nt;i++){ ShTex* st=&s0->si.tex[i]; if(st->shadow) continue; u32 handle=sh_tex_handle(4,tcb,st); (void)cba;
       u32 tic[8]; gmem_read(tic_base+(handle&0xFFFFF)*32ull,tic,32); u32 ty=(tic[0]>>7)&7;
       u64 tt0=plat_ns(); Tex* t=tex_from_tic(tic); g_fsk_tex_ns+=plat_ns()-tt0;   /* texture loads: counted as textures, not shaders */
-      if(t? t->f.is_int : (ty==3 || ty==4)){ tm|=1u<<i; if((t && ifmt_signed(t->f.ifmt)) || (!t && ty==3)) ts|=1u<<i; } } }
+      if(t? (t->f.is_int || tic_stencil_read(tic,t)) : (ty==3 || ty==4)){ tm|=1u<<i; if((t && ifmt_signed(t->f.ifmt)) || (!t && ty==3)) ts|=1u<<i; } } }
   rm&=s0->si.sph[18]? 0xFF : 0; if(!tm && !rm) return s0;
   g_fs_rtm=rm; g_fs_rts=rs; g_fs_rtk=rm*0x27D4EB2Fu ^ rs*0x165667B1u ^ 0x5A5A0000u;
   Sh* s=shader_get(addr,ST_FS,tm,ts); g_fs_rtk=0; g_fs_rtm=0; g_fs_rts=0; return s; }
@@ -2475,6 +2501,8 @@ static void bind_textures(GpuChannel* ch, int stage, Sh* s, GLuint prog){
     GLenum want= st->type==2? GL_TEXTURE_3D : st->type==3? (st->array? GL_TEXTURE_CUBE_MAP_ARRAY : GL_TEXTURE_CUBE_MAP) : st->array? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
     tids[i]=0;
     GLuint zc_id= (st->shadow && t && want==GL_TEXTURE_2D && !t->f.depth)? shadow_depth_copy(t) : 0;
+    int sread= !st->shadow && want==GL_TEXTURE_2D && tic_stencil_read(tic,t);
+    if(sread && !zc_id) zc_id=stencil_view(t);
     if(zc_id){ if(mb) tids[i]=zc_id; else glBindTexture(want,zc_id); st_tex_ok++; g_tex_any_ok=1; }
     /* a 3D texture with nothing in memory only gets the neutral LUT when it has a LUT's shape (N x N x N): Mario Kart
        World's 64x36x256 volumetric fog grid, written by compute, got an identity table and every pixel was tinted by
@@ -2525,7 +2553,7 @@ static void bind_textures(GpuChannel* ch, int stage, Sh* s, GLuint prog){
     int srgb_raw= t && t->f.ifmt==GL_SRGB8_ALPHA8 && !((tic[4]>>22)&1);
     /* compare mode comes from the shader's sampler type, a non-shadow sampler with compare on reads 0 in GL */
     if(st->shadow){ if(!((tsc[0]>>9)&1)){ tsc[0]|=1u<<9; tsc[0]=(tsc[0]&~(7u<<10))|(3u<<10); } } else tsc[0]&=~(1u<<9);
-    if(t && t->f.is_int) tsc[1]=(tsc[1]&~0xF3u)|0x51u;   /* int textures must be NEAREST, LINEAR makes them incomplete */
+    if(t && (t->f.is_int || sread)) tsc[1]=(tsc[1]&~0xF3u)|0x51u;   /* int textures must be NEAREST, LINEAR makes them incomplete */
     if(srgb_raw) tsc[7]|=0x80000000u;
     if(mb) sids[i]=sampler_get(tsc); else glBindSampler(unit,sampler_get(tsc));
     /* TIC swizzle */
@@ -3676,7 +3704,7 @@ static u64 st_tex_evict, st_vb_evict;
 static void tex_free(Tex* t){
   if(t->is_rt) RT_WATCH(t,"freed");
   if(t==g_view_rt) g_view_rt=NULL;
-  glDeleteTextures(1,&t->id); if(t->view) glDeleteTextures(1,&t->view); if(t->zc){ glDeleteTextures(1,&t->zc); t->zc=0; }
+  glDeleteTextures(1,&t->id); if(t->view) glDeleteTextures(1,&t->view); if(t->zc){ glDeleteTextures(1,&t->zc); t->zc=0; } if(t->sv){ glDeleteTextures(1,&t->sv); t->sv=0; }
   if(t->crop){ glDeleteTextures(1,&t->crop->id); if(t->crop->view) glDeleteTextures(1,&t->crop->view); free(t->crop); }
   if(t->vol){ glDeleteTextures(1,&t->vol->id); if(t->vol->view) glDeleteTextures(1,&t->vol->view); free(t->vol); }
   if(t->lay){ glDeleteTextures(1,&t->lay->id); if(t->lay->view) glDeleteTextures(1,&t->lay->view); free(t->lay->seen); free(t->lay); }
