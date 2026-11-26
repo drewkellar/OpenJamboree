@@ -785,8 +785,12 @@ static void inst(Ctx* c, u32 idx, u64 w, const Op* op){
     setr(c,d,v); break; }
   case O_ALD: {
     u32 addr=B(w,20,10), n=B(w,47,2)+1; int is_out=B(w,32,1);
-    if(c->stage==ST_GS && !is_out && B(w,8,8)!=255){
-      const char* ix=T("int(min(%s,%uu))",R(c,B(w,8,8)),c->si->gs_input_vertices? c->si->gs_input_vertices-1 : 0);
+    /* geometry shader input: ALD Rd, a[Ra + off], Rv takes the vertex handle in Rv (bits 39-46, envytools gm107.c);
+       ISBERD/VMAD make the handle from the vertex number, so it is used as the index. Older code took Ra as the
+       vertex, kept when Rv is RZ (bug 17: the star graph's line shader read every vertex as vertex 0) */
+    if(c->stage==ST_GS && !is_out && (B(w,39,8)!=255 || B(w,8,8)!=255)){
+      u32 vr= B(w,39,8)!=255? B(w,39,8) : B(w,8,8);
+      const char* ix=T("int(min(%s & 0xFFFFu,%uu))",R(c,vr),c->si->gs_input_vertices? c->si->gs_input_vertices-1 : 0);
       for(u32 k=0;k<n;k++) setr(c,d+k,attr_read_idx(c,addr+k*4,0,ix));
       break; }
     if(B(w,8,8)!=255){ /* indexed attribs: only generic-by-register */
@@ -900,6 +904,34 @@ static void inst(Ctx* c, u32 idx, u64 w, const Op* op){
     else { static const char* fn[9]={"atomicAdd","atomicMin","atomicMax","","","atomicAnd","atomicOr","atomicXor","atomicExchange"}; emitl(c,"old_ = %s(%s, %s);",fn[aop],m,v); }
     setr(c,d,"old_");
     c->indent--; emitl(c,"}"); break; }
+  /* VMAD / VSETP: video multiply-add and compare on selected bytes/halves (fields as in envytools gm107.c). Geometry
+     shaders use them to turn the input vertex number into an attribute handle; untranslated, every vertex of the
+     results star graph's lines read vertex 0 and the lines vanished (bug 17).
+     a: bit 38 = 16 bit (else 8), bit 48 = signed, bits 36-37 = byte (b0..b3) or half (0/2 = h0/h1) select.
+     b: bit 50 = register at bit 20, else a 16 bit immediate at bit 20; bit 49 = signed; register b: bit 30 = 16/32 bit
+        (bits 28-29: 0 h0, 1 h1, 2 32 bit), else a byte selected by bits 28-29 */
+  case O_VMAD: case O_VSETP: {
+    int asg=B(w,48,1), a16=B(w,38,1); u32 asel=B(w,36,2); int bsg=B(w,49,1), breg=B(w,50,1);
+    const char* av=R(c,a);
+    const char* A= a16? T("%s(bitfieldExtract(%s(%s),%u,16))",asg?"int":"uint",asg?"int":"uint",av,(asel>>1)*16)
+                      : T("%s(bitfieldExtract(%s(%s),%u,8))",asg?"int":"uint",asg?"int":"uint",av,asel*8);
+    const char* Bx;
+    if(!breg){ u32 im=B(w,20,16); Bx= bsg? T("int(%d)",(int)(i16)im) : T("uint(%uu)",im); }
+    else { const char* bv=R(c,B(w,20,8)); u32 bs=B(w,28,3);
+      if(bs&4){ u32 h=bs&3; Bx= h==2? T("%s(%s)",bsg?"int":"uint",bv) : T("%s(bitfieldExtract(%s(%s),%u,16))",bsg?"int":"uint",bsg?"int":"uint",bv,h*16); }
+      else Bx=T("%s(bitfieldExtract(%s(%s),%u,8))",bsg?"int":"uint",bsg?"int":"uint",bv,(bs&3)*8); }
+    if(id==O_VMAD){ u32 sc=B(w,51,2);
+      const char* p= (asg||bsg)? T("(int(%s)*int(%s))",A,Bx) : T("(uint(%s)*uint(%s))",A,Bx);
+      if(sc) p= (asg||bsg)? T("(%s>>%d)",p,sc==1? 7 : 15) : T("(%s>>%uu)",p,sc==1? 7u : 15u);
+      setr(c,d,T("(uint(%s) + %s)",p,R(c,B(w,39,8)))); break; }
+    u32 cmp=(B(w,47,1)<<2)|(B(w,44,1)<<1)|B(w,43,1); int sg=asg||bsg;
+    const char* t=icmp_expr(cmp,T("uint(%s)",A),T("uint(%s)",Bx),sg); const char* pc=PN(c,B(w,39,3),B(w,42,1));
+    setp2(c,B(w,3,3),B(w,0,3),B(w,45,2),t,pc); break; }
+  /* ISBERD: read the internal stage buffer. In the default mode it gives the attribute handle of the vertex number
+     in a; the ALD that follows takes that as the vertex index, so it passes a through */
+  case O_ISBERD: {
+    if(B(w,33,2)==0 && !B(w,31,1)){ setr(c,d,R(c,a)); break; }
+    setr(c,d,R(c,a)); unsupported(c,"ISBERD mode",w); break; }
   /* VMNMX: video min/max. min/max of the selected bytes/halves of a and b, then a second op with c (merge into c,
      add, min or max) */
   case O_VMNMX: {

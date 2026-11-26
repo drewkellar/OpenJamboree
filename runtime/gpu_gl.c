@@ -2074,8 +2074,7 @@ static void apply_state(GpuChannel* ch){
     if(r[0x646]){ glEnable(GL_CULL_FACE); glCullFace(r[0x648]==0x404? GL_FRONT : r[0x648]==0x408? GL_FRONT_AND_BACK : GL_BACK); } else glDisable(GL_CULL_FACE);
     { GLenum ff= r[0x647]==0x900? GL_CW : GL_CCW; if(yflip) ff= ff==GL_CW? GL_CCW : GL_CW; glFrontFace(ff); }
     glPolygonMode(GL_FRONT_AND_BACK, r[0x36B]==0x1B01? GL_LINE : r[0x36B]==0x1B00? GL_POINT : GL_FILL);
-    if(r[0x372]){ float fac, un; memcpy(&fac,&r[0x55B],4); memcpy(&un,&r[0x56F],4); glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(fac,un); } else glDisable(GL_POLYGON_OFFSET_FILL); } }
-  /* depth / stencil */
+    if(r[0x372]){ float fac, un; memcpy(&fac,&r[0x55B],4); memcpy(&un,&r[0x56F],4); glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(fac,un); } else glDisable(GL_POLYGON_OFFSET_FILL); } }  /* depth / stencil */
   { u32 z= g_zt? 1u : 0u;
     GRP(2, z,r[0x4B3],r[0x4C3],r[0x4BA],r[0x4E0],r[0x4E1],r[0x4E2],r[0x4E3],r[0x4E4],r[0x4E5],r[0x4E6],r[0x4E7],r[0x565],r[0x566],r[0x567],r[0x568],r[0x569],r[0x3D5],r[0x3D6],r[0x3D7]){
     if(r[0x4B3] && g_zt){ glEnable(GL_DEPTH_TEST); glDepthFunc(cmp_func(r[0x4C3])); } else glDisable(GL_DEPTH_TEST);
@@ -2832,7 +2831,18 @@ static void tr_draw(GpuChannel* ch, Sh* vs, Sh* fs, u64 vsa, u64 fsa, int indexe
   trace_note("  blend en=%u,%u indep=%u common[sep=%u eq=%x src=%x dst=%x eqa=%x srca=%x dsta=%x] ind0[%x %x %x %x %x %x %x] mask=%x/%x common=%u srgb=%u alphatest=%u f=%x ref=%.3f cull=%u/%x front=%x vp(%.0f,%.0f,%.0f,%.0f) origin=%x yctl=%x vpctl=%x\n",
     r[0x4D8],r[0x4D9],r[0x4B9],r[0x4CF],r[0x4D0],r[0x4D1],r[0x4D2],r[0x4D3],r[0x4D4],r[0x4D6],r[0x780],r[0x781],r[0x782],r[0x783],r[0x784],r[0x785],r[0x786],r[0x680],r[0x681],r[0x3E4],r[0x4B8],r[0x4BB],r[0x4C5],ref,r[0x646],r[0x648],r[0x647],vt[0],vt[1],vt[3],vt[4],r[0x4EB],r[0x5E4],r[0x35F]);
   trace_note("  scissor0 en=%u x=%u..%u y=%u..%u  clipctl=%x zbias=%u/%08x/%08x stencil func=%x ref=%x mask=%x  vertex attrs:",r[0x380]&1,r[0x381]&0xFFFF,r[0x381]>>16,r[0x382]&0xFFFF,r[0x382]>>16,r[0x44E],r[0x372],r[0x55B],r[0x56F],r[0x4E4],r[0x4E5],r[0x4E6]);
-  for(int a=0;a<8;a++) trace_note(" %x",r[0x458+a]); trace_note("\n");
+  for(int a=0;a<8;a++) trace_note(" %x",r[0x458+a]); trace_note("  provoking=%s\n",(r[0x5A1]&1)? "last" : "first");
+  if(topology==1 || topology==3 || topology==10 || topology==11){ /* line draws: widths and the float vertex data */
+    float lws,lwa; memcpy(&lws,&r[0x4EC],4); memcpy(&lwa,&r[0x4ED],4);
+    trace_note("  line width smooth=%g aliased=%g smooth_en(4b8..4bf)=%x %x %x %x %x %x %x %x\n",lws,lwa,r[0x4B8],r[0x4B9],r[0x4BA],r[0x4BB],r[0x4BC],r[0x4BD],r[0x4BE],r[0x4BF]);
+    trace_note("  stages:"); for(int st=0;st<6;st++) trace_note(" %d:cfg=%x off=%x",st,r[0x800+st*0x10],r[0x801+st*0x10]); trace_note("\n");
+    u32 first= indexed? 0 : r[0x35D];
+    for(u32 vi=0; vi<count && vi<16 && !indexed; vi++){ trace_note("    v%-2u",vi);
+      for(int i=0;i<8;i++){ if(!(vs->si.in_mask&(1u<<i))) continue; u32 a=r[0x458+i]; u32 buf=a&31, off=(a>>7)&0x3FFF, ty=(a>>27)&7, size=(a>>21)&0x3F;
+        u32* va=&r[0x700+buf*4]; u64 start=((u64)va[1]<<32)|va[2]; u32 stride=va[0]&0xFFF; float f[4]={0,0,0,0};
+        if(ty==7 && size<=4 && (a&0x40)==0){ gmem_read(start+(u64)(first+vi)*stride+off,f,16); }
+        trace_note(" a%d=(%.4g %.4g %.4g %.4g)",i,f[0],f[1],f[2],f[3]); }
+      trace_note("\n"); } }
   tr_shader(vsa,vs,ST_VS); if(fsa) tr_shader(fsa,fs,ST_FS);
   tr_textures(ch,0,vs); if(fsa) tr_textures(ch,4,fs);
   if(count<=6){ /* fullscreen passes (tonemap, fog, lighting): dump their constants */
@@ -3507,7 +3517,12 @@ static void shot8_poll(void){
 static void shot8_capture(GLuint tex, const float* xf, int tw, int th){
   shot8_poll();
   { static int tf; if(!tf){ tf= getenv("SWR_SHOT8_TEST")? 1 : -1; } if(tf>0 && ++tf==40) g_shot8_req=1; }   /* automated test hook */
-  { static int ev=-1, n, shots; if(ev<0){ const char* e=getenv("SWR_SHOT8_EVERY"); ev= e? atoi(e) : 0; } if(ev>0 && shots<40 && ++n%ev==0){ g_shot8_req=1; shots++; } }   /* every N presents (tests) */
+  /* SWR_SHOT8_EVERY=N[@s[,max]]: an F8 capture every N presents (tests), optionally from s seconds after the first
+     present and up to max captures (default 40); short bursts show how long a transition lasts */
+  { static int ev=-1, n, shots, mx=40; static double from; static u64 t0; if(ev<0){ const char* e=getenv("SWR_SHOT8_EVERY"); ev= e? atoi(e) : 0;
+      const char* at= e? strchr(e,'@') : NULL; if(at){ from=atof(at+1); const char* c=strchr(at,','); if(c){ mx=atoi(c+1); if(mx<1) mx=1; if(mx>2000) mx=2000; } } }
+    if(!t0) t0=plat_ns();
+    if(ev>0 && shots<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ g_shot8_req=1; shots++; } }
   if(!g_shot8_req || g_s8_sync) return;
   g_shot8_req=0;
   if(!p_s8map){ p_s8map=(PFNGLMAPBUFFERRANGEPROC)backend_gl_proc("glMapBufferRange"); p_s8unmap=(PFNGLUNMAPBUFFERPROC)backend_gl_proc("glUnmapBuffer");

@@ -265,6 +265,27 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   New `[Controls] pad_buttons`: 0 (default) maps by label (Xbox A = A confirms), 1 restores the Switch positions.
   Jamboree's four-dot prompts are position glyphs; with `pad_buttons=0` they are swapped to the Xbox positions (bug 11).
 
+### Bug 17: the results star graph had no lines (fixed)
+- Owner-confirmed in the 2026-11-26 Roll 'em Raceway playthrough: the Star Graph (finale and results) showed axes
+  and grid but no line for any player. Reproduced every time from a turn-10 save (`raceway-finale` in the local save
+  library), about 7 minutes of background play to the results.
+- F5 trace: four draws, one per player, `vs=c3378efdaffd03aa fs=df003795311b14d2`, 14 vertices, topology 11 (line
+  strip with adjacency), and `result rt0: (no change)`. The vertex data was right (one point per turn). The fragment
+  shader draws an anti-aliased stroke from flat segment ends and a per-pixel position, which only a geometry shader
+  supplies, and stage 4 (geometry, `cfg=41`) was enabled.
+- The geometry shader (`6fc84d3a1da6997a`, lines adjacency in, triangle strip out) had three untranslated
+  instructions: `VMAD`, `VSETP`, `ISBERD`. They turn the input vertex number 0..3 into a vertex handle. Once they
+  were translated, the attribute loads still read vertex 0: `ALD Rd, a[Ra + off], Rv` takes the vertex in `Rv`
+  (bits 39-46), and the translator took `Ra` (bits 8-15, RZ here). Every vertex of every segment was vertex 0, so the
+  strokes had no area.
+- Fix (`shader.c`): `VMAD` and `VSETP` (byte/half selects, signedness, the `.shr7`/`.shr15` scale; fields from
+  envytools `gm107.c`), `ISBERD` default mode passes its source through, and a geometry shader `ALD` uses `Rv` as the
+  vertex (falls back to `Ra` when `Rv` is RZ, the old behaviour). The shader cache is keyed by the translated source,
+  so stale programs aren't reused.
+- Result: the graph draws its four lines (flat at 0 stars, then the bonus star step at turn 10). No other
+  untranslated instruction was left among the 709 shaders that run used.
+- A first guess (the provoking vertex, register `0x5A1`) was ruled out: the game sets it to "last", GL's default.
+
 ### Build fixes (the source as shipped didn't build with the bundled GCC 16)
 - `plat.c`: missing `#include <math.h>`; `svc_core.c`: `ipc_warn_once` used before its declaration.
 - `plat.c`: prebuilt `vp9/win/libvpx.a` calls `_setjmp`, which the UCRT import library no longer exports; a jump shim
@@ -310,6 +331,8 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_NO_ICON_SWAP=1` | keep the game's button icon sheets as they are (bug 11) |
 | `SWR_BACKGROUND=1` | background test mode: the window sits past the right edge of all monitors, is never activated, has no taskbar or Alt+Tab entry; sound is silenced (still sent to the device so audio timing is unchanged); the real pad, mouse and keyboard are ignored, only posted keys count. F8 captures and logs work as usual. `run.ps1` sets it unless `-Foreground` |
 | `SWR_MUTE=1` | silence only, everything else as normal |
+| `SWR_SHOT8_EVERY=N[@s[,max]]` | an F8 capture every N presented frames, optionally from s seconds after the first frame and up to max captures (default 40): shows frame by frame how long a transition or glitch lasts |
+| (F5 trace) | line draws also list the line widths, the shader stage registers and the first 16 vertices' float attributes; every draw lists the provoking vertex |
 | `SWR_KEEP_DRAWN_FS=<fs>` / `0` | which copy shader protects its RT from a clear later in the frame (bug 12); 0 = off |
 | `_work/sdis.py <sh_*.bin>` | rough listing of a dumped shader (word index = `case N` in the GLSL, guards, CC tests) |
 | (F5 trace) | each draw also lists scissor, clip control, depth bias, stencil function, vertex attribute formats; a skipped target-less draw lists its targets, stream-out state and storage writes and dumps its vertex shader |
@@ -389,6 +412,12 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 | 2026-11-25 | resuming a party | a few white frames (~2 s) between "Continue?" and the board | to check against the console (probably the load fade) |
 | 2026-11-26 | Granite Getaway | on the practice screen, a 1.6 s scripted Plus and Minus chord started the actual minigame. The replay reached the outdoor bridge section. | scripted start verified. Return to the board and physical controller input still need a check |
 | 2026-11-26 | board | a waiting player on a far space looked see-through in an earlier playtest. Mario rendered opaque in the sampled turn-2 view across the mushroom platforms. | exact camera and position from the report still need a reproduction |
+| 2026-11-26 | results (Raceway, owner-reviewed) | Star Graph empty: no player lines, in the finale and on the results screen | fixed (bug 17) |
+| 2026-11-26 | board turn start (owner-reviewed) | big see-through character (Waluigi, Peach) over the board, see-through karts; at the turn start the blue space shows through Bowser's kart | open: reproduces from `raceway-turn-08` |
+| 2026-11-26 | turn banner (owner-reviewed) | "Your turn" bars show without their text; a highlighted Bowser-space row ("Lose 15 coins") lost its text | open |
+| 2026-11-26 | finale (owner-reviewed) | "Congratulations!" drawn with letters missing ("n rat ations!") | open |
+| 2026-11-26 | Boo steal (owner-reviewed) | Boo see-through with Waluigi in a bubble during the steal; should be solid | open, likely the same as the turn-start see-through |
+| 2026-11-26 | transitions (owner-reviewed) | fully white frames before minigames and after a duel | open: measure how long they last (`SWR_SHOT8_EVERY` bursts) |
 
 ## 8. Next steps
 1. Board: a waiting player (Mario, on a space further down the path) looked see-through. Check whether that's the
