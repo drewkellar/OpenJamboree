@@ -1364,6 +1364,7 @@ static const char* volatile g_wk_phase; static volatile u64 g_wk_t0;   /* first 
 
 static void shader_worker(void* arg){
   int first= arg==NULL, slot=(int)(size_t)arg;
+  int cmp_log=getenv("SWR_CMP_LOG")!=NULL;
   if(!backend_gl_worker_current()){ if(first) __atomic_store_n(&g_worker,-1,__ATOMIC_RELEASE); return; }
   __atomic_add_fetch(&g_nworkers,1,__ATOMIC_ACQ_REL);
   if(first) __atomic_store_n(&g_worker,1,__ATOMIC_RELEASE);
@@ -1385,7 +1386,7 @@ static void shader_worker(void* arg){
       { static volatile int nrec; if(__atomic_add_fetch(&nrec,1,__ATOMIC_RELAXED)<=8) LOG("shaders: the video driver crashed on program %016llx, skipped it and kept going\n",(unsigned long long)cj->key); }
       continue; }
     lk=glq_drv_lock(); WK_PHASE(first, j->try_bin? "loading a cached shader" : "in the driver");
-    { static int cl=-1; if(cl<0) cl= getenv("SWR_CMP_LOG")? 1 : 0; if(cl) LOG("cmp: start %016llx%s%s\n",(unsigned long long)j->key,j->try_bin? " (binary)" : "",j->sep? " sep" : ""); }
+    if(cmp_log) LOG("cmp: start %016llx%s%s\n",(unsigned long long)j->key,j->try_bin? " (try binary)" : "",j->sep? " sep" : "");
     plat_guard_enter(&cg);
     u64 tc0=plat_ns();
     if(j->try_bin){ /* disk binary, loaded here instead of on the GPU thread */
@@ -1395,7 +1396,9 @@ static void shader_worker(void* arg){
           free(b); }
         fclose(f); }
       if(ok){ job_locs(j,p); glFinish(); u64 dt=plat_ns()-tc0; __atomic_add_fetch(&g_bin_ns,dt,__ATOMIC_RELAXED); __atomic_add_fetch(&g_bin_n,1,__ATOMIC_RELAXED);
-        plat_guard_enter(NULL); if(lk){ lk=0; glq_drv_unlock(); } j->prog=p; __atomic_store_n(&j->state,1,__ATOMIC_RELEASE); continue; }
+        plat_guard_enter(NULL); if(lk){ lk=0; glq_drv_unlock(); }
+        if(cmp_log) LOG("cmp: done %016llx (binary) ok=1 %.1f ms\n",(unsigned long long)j->key,dt/1e6);
+        j->prog=p; __atomic_store_n(&j->state,1,__ATOMIC_RELEASE); continue; }
       while(glGetError()!=GL_NO_ERROR){} }
     if(bad_key(j->key)){ plat_guard_enter(NULL); if(lk){ lk=0; glq_drv_unlock(); } snprintf(j->log,sizeof j->log,"skipped: it crashed the video driver in an earlier run"); j->prog=0; __atomic_store_n(&j->state,2,__ATOMIC_RELEASE); continue; }
     if(g_shp_on){ /* compiled in the helper process, only its binary gets loaded here. the driver lock isn't held while we wait */
@@ -1431,7 +1434,7 @@ static void shader_worker(void* arg){
     glFinish();
     { u64 dt=plat_ns()-tc0; __atomic_add_fetch(&g_cmp_ns,dt,__ATOMIC_RELAXED); __atomic_add_fetch(&g_cmp_n,1,__ATOMIC_RELAXED); if(dt>g_cmp_max) g_cmp_max=dt; }
     cg.key=0; plat_guard_enter(NULL); if(lk){ lk=0; glq_drv_unlock(); }
-    { static int cl=-1; if(cl<0) cl= getenv("SWR_CMP_LOG")? 1 : 0; if(cl) LOG("cmp: done %016llx ok=%d %.1f ms\n",(unsigned long long)j->key,ok,(plat_ns()-tc0)/1e6); }
+    if(cmp_log) LOG("cmp: done %016llx (source) ok=%d %.1f ms\n",(unsigned long long)j->key,ok,(plat_ns()-tc0)/1e6);
     j->prog=p; __atomic_store_n(&j->state, ok? 1 : 2, __ATOMIC_RELEASE);
     if(lo) plat_sleep_ns(2000000);   /* background work yields to the game */
   } }

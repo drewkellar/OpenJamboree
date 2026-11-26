@@ -19,7 +19,7 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 | Minigames | work: Sandwiched (played to the result, back to the board, turn 2, autosave); practice previews of Granite Getaway, Pickin' Produce (2 vs 2), Lumber Tumble |
 | New party | works: party rules tutorial (scroll with the D-pad), board and settings, turn order, first turn, autosave |
 | Pause menu on the board | works (Resume, exit to the balloon or plaza with its confirmation) |
-| Load hitches | gone: no frame gap over 1.5 s from boot to the board (`pause:` log lines); the board load dips to ~53 FPS for a few seconds |
+| Load hitches | the tested Mega Wiggler resume route stayed below 1.5 s per frame gap. Other boards showed multi-second gaps on first load (board coverage below) |
 | Save dates | **fixed** (bug 6): parties were dated 12/31/1969 |
 | Mode list backdrop | not reproduced: the gray panel seen there is the game's own Offline Data dialog |
 | Reading the user's dump in place | works (`game_dump=`), nothing copied |
@@ -214,6 +214,13 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   `f21a173c54461431` and the same vertex attribute formats. Draw 31's captured vertex constants differ in slots
   9 and 10. Compare those inputs and their producer across initial selection and reselection.
 
+### Bug 15: cached shader jobs looked unfinished in compile traces (fixed)
+- Board-load triage needs to distinguish driver time spent loading a binary from time spent compiling source.
+  `SWR_CMP_LOG=1` labeled all cache attempts as binary work and omitted the completion line on cache hits.
+- The shader worker now identifies cache attempts and logs completion times for successful binary loads and
+  source compiles. This fixes the diagnostic output used to correlate worker jobs with presentation gaps.
+- The rebuilt runtime reported both completion types during the background board tests.
+
 ### Esc quit the game on a stray press
 - Esc now has to be held 1.5 s (the window title shows "Hold Esc to quit" while it is down). Closing the window and
   Alt+F4 work as before.
@@ -249,7 +256,7 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | Env var | Effect |
 | --- | --- |
 | `SWR_DRAW_SYNC=1` (with `SWR_NO_GLQ=1`) | `glFinish` after every draw, logs each draw and the slow ones |
-| `SWR_CMP_LOG=1` | logs each shader program compile start/finish with its time |
+| `SWR_CMP_LOG=1` | logs shader worker jobs. `try binary` is a cache attempt. Completion labels distinguish binary loads from source compiles |
 | `SWR_IPC_LOG=1` | logs every IPC call and result except hid/audio/nvdrv |
 | `SWR_TRACE_DYN=lo-hi,clo-chi` (hex) | logs each function in `[lo,hi)` the first time it's called through the dispatch table from a return address in `[clo,chi)` (calls between modules, e.g. `boot.nro` → main, main → sdk) |
 | `SWR_OPEN_CONTEXT_USER=1` | acc:u0 131 answers with the user again (pre-bug-4 behaviour) |
@@ -362,7 +369,36 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 4. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
 5. Small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and match frame timestamps to asset loads. For the
    reproducible board load hitch, investigate the time outside the GPU-thread categories before tuning texture work.
-6. More minigames and the other boards; a full 10-turn party to the results.
+6. More minigames, board-specific events and full 10-turn parties through the results screen.
 7. Hold-to-start ("-/+ Start!" in minigame practice) and other hold inputs with a real pad.
 8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
 9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, add CHANGELOG lines.
+
+## 9. Board coverage
+
+Background Party Rules smoke tests on Switch 1 v1.1.0 with an isolated save. The first pass checked board entry,
+intro dialogue, the turn HUD, spaces and movement. Full parties and later board events remain open.
+The game has seven boards. Western Land, Mario's Rainbow Castle and King Bowser's Keep require Silver, Gold and
+Diamond Player Rank, respectively. [Nintendo's board guide](https://www.nintendo.com/au/games/nintendo-switch/super-mario-party-jamboree/)
+The locked-board run used a local test build that exposed the three boards on the isolated save and ran the
+reveal scenes. This covers the board paths after availability checks. Normal achievement progression remains untested.
+
+| Board | Confirmed path | Findings |
+| --- | --- | --- |
+| Mega Wiggler's Tree Party | Resume, turn 1 and exit to the balloon | Existing coverage includes autosave and a minigame return |
+| Rainbow Galleria | New party, turn 1 dice and walking, exit, new save slot dated correctly | Up to 7.2 s without a new frame during first entry. A later run with warmed shader caches had no gap over 1.5 s on entry |
+| Goomba Lagoon | New party, turn 1 CPU dice and walking, exit, new save slot dated correctly | Up to 4.6 s without a new frame during board entry |
+| Roll 'em Raceway | New party, opening, turn 1 CPU kart movement and coin result | Up to 4.8 s without a new frame during board entry |
+| Western Land | Reveal, new party, first CPU movement and Lucky Space roulette | Up to 2.7 s without a new frame during board entry. The slowest source shader job in that window took 1.83 s |
+| Mario's Rainbow Castle | Reveal, new party, autosave, turn 1 player dice and walking, exit | Up to 4.6 s without a new frame during board entry |
+| King Bowser's Keep | Reveal, new party, Impostor Bowser introduction, turn 1 CPU dice and walking, Creepy Dice Block result | Up to 4.2 s without a new frame during board entry |
+
+On Rainbow Galleria, the stall sample caught the host GL thread in `glCompressedTexSubImage2D` with about
+32 MB of queued calls and 14 guest fence writes held behind a compute readback. The timeout released the
+held writes. Roll 'em Raceway also logged the compute readback timeout. Both boards resumed rendering.
+This identifies where the load stalled in those samples. The cause of the slow driver call is still open.
+
+A follow-up Rainbow Galleria resume used identical save copies and empty runtime shader caches. During the first
+20 seconds after opening the board archive, the longest frame gaps were 522 ms with the default configuration
+and 498 ms with `SWR_DRV_EXCL=1`. Each run recorded six gaps over 50 ms and none over 1.5 s. This resume test
+did not reproduce the multi-second pause from new-party entry. The default driver configuration stays in use.
