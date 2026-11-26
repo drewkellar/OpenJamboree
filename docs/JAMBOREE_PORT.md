@@ -235,6 +235,23 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   source compiles. This fixes the diagnostic output used to correlate worker jobs with presentation gaps.
 - The rebuilt runtime reported both completion types during the background board tests.
 
+### Bug 16: first-visit character switching can freeze on NVIDIA OpenGL (fixed on the tested Windows driver)
+- The original roster replay recorded a 1.33 s frame gap as three source shader jobs completed. Clearing only
+  the runtime shader cache did not reproduce it. Appending a diagnostic comment to those three GLSL sources
+  forced a driver cache miss and reproduced a 1.23 s gap with no required-draw wait over 20 ms in that window.
+- One in-process worker still produced a 1.09 s gap. Its trace put 756 ms into linking the fragment shader
+  (`c47f8e986c9e72e5`); the two vertex links took about 260 and 211 ms. The render context was held up during
+  compilation in another context of the same process.
+- The existing helper process isolated the compilation from rendering, but routing every job to it caused
+  multi-second pauses before the roster. Windows NVIDIA auto mode now queues separable shaders of 48 KiB
+  or more for the helper when their draws can be skipped while compiling. The first compiler worker stays
+  available for the regular queue. Explicit `shader_process=0` or `1` still selects in-process or full helper mode.
+- In a forced-cache-miss background replay, all three shaders compiled in the helper. The same switching
+  sequence stayed below 50 ms per frame gap even while the fragment shader took 856 ms. Waluigi's initial
+  preview rendered correctly and the title-to-roster replay peaked at 166 ms.
+- A clean build with an empty runtime shader cache rendered the initial Waluigi preview and resumed a
+  Roll 'em Raceway save through active turn 1 play.
+
 ### Esc quit the game on a stray press
 - Esc now has to be held 1.5 s (the window title shows "Hold Esc to quit" while it is down). Closing the window and
   Alt+F4 work as before.
@@ -366,7 +383,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 | 2026-11-25 | board prompts | four-dot icons showed Switch positions with an Xbox pad | fixed (bug 11) |
 | 2026-11-25 | minigame select | black background instead of the board | worked around (bug 12), cause open |
 | 2026-11-25 | anywhere | a stray Esc closed the game | changed: hold 1.5 s |
-| 2026-11-26 | character select | rapid switching hit a 1.33 s frame gap alongside three roughly 1.29 s shader compiles. The same input schedule on a warmed cache had no reported gap over 50 ms during switching. Waluigi's preview distorted on entry in both runs. | the preview distortion is fixed (bug 14). The first-visit hitch is still open |
+| 2026-11-26 | character select | rapid switching hit a 1.33 s frame gap alongside three roughly 1.29 s shader compiles. The same input schedule on a warmed cache had no reported gap over 50 ms during switching. Waluigi's preview distorted on entry in both runs. | preview distortion and the reproduced NVIDIA hitch are fixed (bugs 14 and 16) |
 | 2026-11-26 | board load and general play | first board load had a 449 ms frame on the installed runtime and a 468 ms frame on the rebuilt runtime. The latter included 141 ms of texture work and 47 ms of shader work on the GPU thread. | load hitch reproduced. The rest of the frame and the reported spikes during ordinary play are still open |
 | 2026-11-26 | resume screen | the existing turn-2 party shows 12/31/1969 on the rebuilt runtime | matches the legacy save behavior in bug 6. The stored date belongs to party creation and is retained on resume |
 | 2026-11-25 | resuming a party | a few white frames (~2 s) between "Continue?" and the board | to check against the console (probably the load fade) |
@@ -378,12 +395,10 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
    game's own fade or a rendering bug.
 2. Plaza overview: the paving around the fountain looks noisy from far away (reported; likely the texture's lower
    mips, ASTC decoded to BC3 on GPUs without ASTC). Not reproduced yet: needs the first-visit plaza tour.
-3. Character select: for the first-visit switching hitch, check why in-driver shader compilation coincides
-   with a gap on the presentation thread.
-4. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
-5. Small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and match frame timestamps to asset loads. For the
+3. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
+4. Small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and match frame timestamps to asset loads. For the
    reproducible board load hitch, investigate the time outside the GPU-thread categories before tuning texture work.
-6. More minigames, board-specific events and full 10-turn parties through the results screen.
+5. More minigames, board-specific events and full 10-turn parties through the results screen.
 7. Hold-to-start ("-/+ Start!" in minigame practice) and other hold inputs with a real pad.
 8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
 9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, add CHANGELOG lines.

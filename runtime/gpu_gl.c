@@ -1260,7 +1260,7 @@ static GLuint prog_finish(Sh* vs, Sh* fs, GLuint p){
    program isn't ready yet get skipped for a few frames */
 static int prog_cached(Sh* vs, Sh* fs){ pcache_init(); if(g_pcache<=0) return 0; char path[160]; snprintf(path,sizeof path,"shader_cache/%s_%016llx.bin",g_pc_tag,(unsigned long long)prog_key(vs,fs)); FILE* f=fopen(path,"rb"); if(!f) return 0; fclose(f); return 1; }
 
-typedef struct WJob { const char* vs; const char* fs; char* own_vs; char* own_fs; u64 key; volatile int state; GLuint prog; int keep; int sep; GLenum stype; char log[1536]; int try_bin; char bin_path[160]; GLint loc[2]; } WJob;
+typedef struct WJob { const char* vs; const char* fs; char* own_vs; char* own_fs; u64 key; volatile int state; GLuint prog; int keep; int sep; int use_helper; GLenum stype; char log[1536]; int try_bin; char bin_path[160]; GLint loc[2]; } WJob;
 
 /* uniform locations are looked up here on the compile thread's own context, on the GPU thread every
    glGetUniformLocation waited for the whole GL queue */
@@ -1271,7 +1271,7 @@ static void job_locs(WJob* j, GLuint p){
 #define WQN 8192
 typedef struct { WJob* volatile e[WQN]; volatile u32 h, t; } WRing;
 
-static WRing wq_hi, wq_lo; static volatile int g_worker; static volatile u64 g_cmp_ns, g_cmp_n, g_cmp_max, g_bin_n, g_bin_ns;   /* 0 not started, 1 running, -1 unavailable */
+static WRing wq_hi, wq_helper, wq_lo; static volatile int g_worker; static volatile u64 g_cmp_ns, g_cmp_n, g_cmp_max, g_bin_n, g_bin_ns;   /* 0 not started, 1 running, -1 unavailable */
 static int wr_push(WRing* r, WJob* j){ u32 t=__atomic_load_n(&r->t,__ATOMIC_RELAXED), h=__atomic_load_n(&r->h,__ATOMIC_ACQUIRE); if(t-h>=WQN) return 0;
   r->e[t%WQN]=j; __atomic_store_n(&r->t,t+1,__ATOMIC_RELEASE); return 1; }
 
@@ -1285,19 +1285,29 @@ extern int backend_gl_worker_current(void);
 /* per compile thread, the crash handler on that thread reads it with plat_guard_get() */
 typedef struct { plat_jmpbuf jb; u64 key; const char* vs; const char* fs; WJob* job; } CmpGuard;
 static u64 g_bad_keys[64]; static int g_nbad=-1; static int g_excl;   /* 1: driver exclusive mode (intel on windows) */
-static volatile int g_shp_on;   /* 1: shaders compile in the helper process (shader_proc.c) */
+static volatile int g_shp_on;   /* shaders can compile in the helper process (shader_proc.c) */
+static int g_shp_large;          /* NVIDIA auto mode: large programs for skippable draws */
+#define SHP_LARGE_SOURCE (48u * 1024u)
 static const char* bad_prefix(void){ return g_shp_on? "crashp_" : g_excl? "crashx_" : "crash_"; }
 static void bad_keys_load(void){ if(g_nbad>=0) return; g_nbad=0; PDir d; if(plat_dir_open(&d,"shader_cache")) return;
-  /* in exclusive mode the old crash_ files don't count, those came from the compile threads racing each other and
-     most of them are fine shaders. with the helper process only crashp_ counts: every version of it crashed there */
+  /* Full helper and exclusive modes ignore failures from the older in-process path.
+     The NVIDIA policy still compiles some shaders in process, so retain both failure records. */
   const char* pre=bad_prefix(); size_t pl=strlen(pre);
-  while(plat_dir_next(&d)) if(!strncmp(d.name,pre,pl) && g_nbad<64){ unsigned long long k=0; if(sscanf(d.name+pl,"%llx",&k)==1 && k) g_bad_keys[g_nbad++]=k; }
+  while(g_nbad<64 && plat_dir_next(&d)){
+    size_t off=pl;
+    if(strncmp(d.name,pre,pl)){
+      if(!g_shp_on || !g_shp_large || strncmp(d.name,"crash_",6)) continue;
+      off=6;
+    }
+    unsigned long long k=0;
+    if(sscanf(d.name+off,"%llx",&k)==1 && k) g_bad_keys[g_nbad++]=k;
+  }
   plat_dir_close(&d); if(g_nbad) LOG("shaders: %d shader(s) crashed the video driver before and will be skipped (shader_cache/crash_*.txt)\n",g_nbad); }
 
 static int bad_key(u64 k){ for(int i=0;i<g_nbad;i++) if(g_bad_keys[i]==k) return 1; return 0; }
 
-static void crash_file(u64 k, const char* a, const char* b){
-  plat_mkdir("shader_cache"); char p[200]; snprintf(p,sizeof p,"shader_cache/%s%016llx.txt",bad_prefix(),(unsigned long long)k);
+static void crash_file(const char* prefix, u64 k, const char* a, const char* b){
+  plat_mkdir("shader_cache"); char p[200]; snprintf(p,sizeof p,"shader_cache/%s%016llx.txt",prefix,(unsigned long long)k);
   FILE* f=fopen(p,"w"); if(f){ fprintf(f,"// this program crashed the video driver. delete this file to try it again\n");
     if(a) fputs(a,f); if(b){ fputs("\n// ----\n",f); fputs(b,f); } fclose(f); } }
 
@@ -1306,7 +1316,7 @@ void gpu_crash_note(void){ CmpGuard* g=(CmpGuard*)plat_guard_get(); u64 k= g? g-
      shaders are fine */
   static volatile int nsaved; if(__atomic_add_fetch(&nsaved,1,__ATOMIC_RELAXED)>1){ logf_(0,"  the video driver crashed again on %016llx (not saved, the driver was already broken)\n",(unsigned long long)k); return; }
   logf_(0,"  the video driver crashed while compiling/linking shader program %016llx; it will be skipped from now on\n",(unsigned long long)k);
-  crash_file(k,g->vs,g->fs); }
+  crash_file(g_shp_large? "crash_" : bad_prefix(),k,g->vs,g->fs); }
 
 /* ---- the helper process (shader_proc.c) */
 int shp_compile(int slot, int sep, unsigned stype, const char* vs, const char* fs, unsigned* fmt, void** bin, unsigned* len, char* log, int logn);
@@ -1343,7 +1353,7 @@ static int shp_job(WJob* j, int slot, u32* fmt, void** bin, u32* len){
         break; } }
     else if(r==1 && t) LOG("shaders: %016llx compiled without %s, the driver only crashed on the full version\n",(unsigned long long)j->key,t==1? "precise/invariant" : "precise/invariant and the gl_PerVertex block"); }
   if(broken) return 0;
-  if(r<0 && crashed){ crash_file(j->key,j->vs,j->sep? NULL : j->fs); { int i=__atomic_fetch_add(&g_shp_nsaved,1,__ATOMIC_RELAXED); if(i<8) g_shp_saved[i]=j->key; } snprintf(j->log,sizeof j->log,"skipped: the video driver crashes on every version of it (in the helper process, the game kept going)"); return 2; }
+  if(r<0 && crashed){ crash_file("crashp_",j->key,j->vs,j->sep? NULL : j->fs); { int i=__atomic_fetch_add(&g_shp_nsaved,1,__ATOMIC_RELAXED); if(i<8) g_shp_saved[i]=j->key; } snprintf(j->log,sizeof j->log,"skipped: the video driver crashes on every version of it (in the helper process, the game kept going)"); return 2; }
   if(r<0){ if(g_shp_on){ g_shp_on=0; LOG("shaders: the helper process stopped working, compiling in the game instead\n"); } return 0; }
   if(r==0) return 2;
   __atomic_add_fetch(&g_shp_ok,1,__ATOMIC_RELAXED);
@@ -1353,9 +1363,12 @@ static int shp_job(WJob* j, int slot, u32* fmt, void** bin, u32* len){
 
 /* several compile threads pop from the same rings */
 static volatile u32 g_wq_lk;
-static WJob* wq_next(int* lo){
+static WJob* wq_next(int slot, int* lo){
   while(__atomic_exchange_n(&g_wq_lk,1,__ATOMIC_ACQUIRE)) plat_yield();
-  WJob* j=wr_pop(&wq_hi); *lo=0; if(!j){ j=wr_pop(&wq_lo); *lo=1; }
+  WJob* j=wr_pop(&wq_hi); *lo=0;
+  /* Keep the first worker available for shaders that can block a frame. */
+  if(!j && slot) j=wr_pop(&wq_helper);
+  if(!j){ j=wr_pop(&wq_lo); *lo=1; }
   __atomic_store_n(&g_wq_lk,0,__ATOMIC_RELEASE); return j; }
 
 static volatile int g_nworkers;
@@ -1371,7 +1384,7 @@ static void shader_worker(void* arg){
   { extern int g_opt_cmp_low; if(g_opt_cmp_low) plat_thread_low_priority(); }   /* only use the cpu the game isn't using */
   for(;;){
     static __thread u32 idle;
-    int lo=0; WJob* j=wq_next(&lo);
+    int lo=0; WJob* j=wq_next(slot,&lo);
     if(!j){ WK_PHASE(first,NULL); plat_sleep_ns(idle<200? 1000000 : 8000000); if(idle<200) idle++; continue; }   /* idle for a while: poll less, the game can use that cpu */
     idle=0; WK_PHASE(first,"waiting for the driver lock");
     /* intel's driver crashes inside glLinkProgram on some of SMO's shaders (null pointer in the driver). the crash
@@ -1401,16 +1414,19 @@ static void shader_worker(void* arg){
         j->prog=p; __atomic_store_n(&j->state,1,__ATOMIC_RELEASE); continue; }
       while(glGetError()!=GL_NO_ERROR){} }
     if(bad_key(j->key)){ plat_guard_enter(NULL); if(lk){ lk=0; glq_drv_unlock(); } snprintf(j->log,sizeof j->log,"skipped: it crashed the video driver in an earlier run"); j->prog=0; __atomic_store_n(&j->state,2,__ATOMIC_RELEASE); continue; }
-    if(g_shp_on){ /* compiled in the helper process, only its binary gets loaded here. the driver lock isn't held while we wait */
+    if(g_shp_on && (!g_shp_large || j->use_helper)){
+      /* Compile in the helper and load its binary here. Release the driver lock while compiling. */
       plat_guard_enter(NULL); if(lk){ lk=0; glq_drv_unlock(); }
       WK_PHASE(first,"waiting for the helper process");
-      u32 fmt=0, len=0; void* bin=NULL; int r=shp_job(j,slot,&fmt,&bin,&len);
+      u32 fmt=0, len=0; void* bin=NULL; int r=shp_job(j,g_shp_large? slot-1 : slot,&fmt,&bin,&len);
       if(r==2 || (r==1 && !j->keep)){ free(bin); j->prog=0; __atomic_store_n(&j->state,r,__ATOMIC_RELEASE); if(lo) plat_sleep_ns(2000000); continue; }
       WK_PHASE(first,"waiting for the driver lock"); lk=glq_drv_lock(); WK_PHASE(first,"loading the helper's binary"); plat_guard_enter(&cg);
       if(r==1){ cg.key=j->key; GLuint p=glCreateProgram(); if(j->sep) p_glProgramParameteri(p,0x8258,GL_TRUE); p_glProgramBinary(p,fmt,bin,(GLsizei)len); free(bin);
         GLint ok=0; glGetProgramiv(p,GL_LINK_STATUS,&ok);
         if(ok){ job_locs(j,p); glFinish(); u64 dt=plat_ns()-tc0; __atomic_add_fetch(&g_cmp_ns,dt,__ATOMIC_RELAXED); __atomic_add_fetch(&g_cmp_n,1,__ATOMIC_RELAXED); if(dt>g_cmp_max) g_cmp_max=dt;
-          cg.key=0; plat_guard_enter(NULL); if(lk){ lk=0; glq_drv_unlock(); } j->prog=p; __atomic_store_n(&j->state,1,__ATOMIC_RELEASE); if(lo) plat_sleep_ns(2000000); continue; }
+          cg.key=0; plat_guard_enter(NULL); if(lk){ lk=0; glq_drv_unlock(); }
+          if(cmp_log) LOG("cmp: done %016llx (helper) ok=1 %.1f ms\n",(unsigned long long)j->key,dt/1e6);
+          j->prog=p; __atomic_store_n(&j->state,1,__ATOMIC_RELEASE); if(lo) plat_sleep_ns(2000000); continue; }
         glDeleteProgram(p); while(glGetError()!=GL_NO_ERROR){} cg.key=0;
         if(g_shp_on){ g_shp_on=0; LOG("shaders: the driver doesn't load the helper's program binaries, compiling in the game instead\n"); } }
       /* no helper: compiled below */ }
@@ -1447,17 +1463,23 @@ static void worker_start(void){
 #endif
     if(want){ if(glq_active()){ glq_excl(); g_excl=1; LOG("shaders: driver exclusive mode (compiling and drawing take turns inside the driver, intel crashes otherwise)\n"); }
       else { extern int g_opt_shader_thread; g_opt_shader_thread=0; } } }
-  /* intel on windows: the shaders compile in a helper process once the driver crashed on one in this game (a crash_
-     file in shader_cache), then only the helper goes. it isn't on from the start: tomodachi froze on intel HD a few
-     seconds after its first compute with it on, and most games never crash the driver */
+  /* Intel uses the helper after a driver crash. On NVIDIA, large cold programs can block rendering
+     across OpenGL contexts. Keep draws that must complete and small programs on the fast in-process path. */
   { extern int g_opt_shader_proc; extern int g_opt_shader_thread; const char* e=getenv("SWR_SHADER_PROC");
     int crashed=0; { PDir d; if(!plat_dir_open(&d,"shader_cache")){ while(plat_dir_next(&d)) if(!strncmp(d.name,"crashx_",7) || !strncmp(d.name,"crashp_",7)) crashed=1; plat_dir_close(&d); } }
     int want= e? atoi(e) : g_opt_shader_proc>=0? g_opt_shader_proc : g_excl && crashed;
+#ifdef _WIN32
+    if(!e && g_opt_shader_proc<0 && !g_excl){
+      const char* vendor=(const char*)glGetString(GL_VENDOR);
+      if(vendor && strstr(vendor,"NVIDIA")){ want=1; g_shp_large=1; }
+    }
+#endif
     pcache_init();
     if(want && g_pcache>0 && g_opt_shader_thread && !getenv("SWR_SYNC_SHADERS")){ char id[512]; const char* v=(const char*)glGetString(GL_VENDOR); const char* r=(const char*)glGetString(GL_RENDERER); const char* x=(const char*)glGetString(GL_VERSION);
       snprintf(id,sizeof id,"%s|%s|%s",v?v:"",r?r:"",x?x:"");
       int st=shp_init(id);
-      if(!st){ g_shp_on=1; LOG("shaders: compiled in a helper process (if the video driver crashes on one, only the helper closes and the game keeps going)\n"); }
+      if(!st){ g_shp_on=1;
+        LOG("shaders: %s\n",g_shp_large? "large programs for skippable draws compile in a helper process" : "compiled in a helper process (if the video driver crashes on one, only the helper closes and the game keeps going)"); }
       else LOG("shaders: the helper process %s, shaders compile in the game\n",st==-3? "got another GPU or no program binaries" : "did not start"); }
     else if(g_excl && !e && g_opt_shader_proc<0) LOG("shaders: compiled in the game (if the video driver ever crashes on one, the next run compiles them in a helper process)\n"); }
   bad_keys_load();
@@ -1483,7 +1505,22 @@ static PFN_UPS_ p_ups; static PFN_BPP_ p_bpp;
 
 static void sh_uloc(Sh* s){ s->uloc= s->sp? glGetUniformLocation(s->sp, (s->stage==ST_VS || s->stage==ST_GS)? "swr_vp" : "swr_at") : -1; }
 
-static int sh_sep_ready(Sh* s){
+static int sh_queue(WJob* j, int must_wait){
+  if(g_shp_on && g_shp_large && !must_wait && __atomic_load_n(&g_nworkers,__ATOMIC_ACQUIRE)>1 &&
+     strlen(j->vs)>=SHP_LARGE_SOURCE){
+    j->use_helper=1;
+    if(wr_push(&wq_helper,j)) return 1;
+    j->use_helper=0;
+  }
+  return wr_push(&wq_hi,j);
+}
+
+static u32 sh_pending(void){
+  return (__atomic_load_n(&wq_hi.t,__ATOMIC_RELAXED)-__atomic_load_n(&wq_hi.h,__ATOMIC_RELAXED))+
+         (__atomic_load_n(&wq_helper.t,__ATOMIC_RELAXED)-__atomic_load_n(&wq_helper.h,__ATOMIC_RELAXED));
+}
+
+static int sh_sep_ready(Sh* s, int must_wait){
   if(s->sps>=2) return 1;
   if(s->sps==1){ int st=__atomic_load_n(&s->sj->state,__ATOMIC_ACQUIRE); if(!st) return 0;
     struct WJob* j=s->sj; s->sj=NULL;
@@ -1497,7 +1534,7 @@ static int sh_sep_ready(Sh* s){
   if(g_worker==1){ /* disk binary or compile, both on the compile thread */
     struct WJob* j=calloc(1,sizeof *j); j->vs=s->src; j->key=key; j->keep=1; j->sep=1; j->stype=shader_gl_type(s->stage);
     if(g_pcache>0){ j->try_bin=1; snprintf(j->bin_path,sizeof j->bin_path,"shader_cache/%s_s%016llx.bin",g_pc_tag,(unsigned long long)key); }
-    if(wr_push(&wq_hi,j)){ s->sj=j; s->sps=1; return 0; }
+    if(sh_queue(j,must_wait)){ s->sj=j; s->sps=1; return 0; }
     free(j); }
   if(g_pcache>0){ char path[160]; snprintf(path,sizeof path,"shader_cache/%s_s%016llx.bin",g_pc_tag,(unsigned long long)key); FILE* f=fopen(path,"rb");
     if(f){ u32 fmt=0, len=0; if(fread(&fmt,4,1,f)==1 && fread(&len,4,1,f)==1 && len && len<(64u<<20)){ void* b=malloc(len);
@@ -1506,7 +1543,7 @@ static int sh_sep_ready(Sh* s){
         free(b); }
       fclose(f); } }
   struct WJob* j=calloc(1,sizeof *j); j->vs=s->src; j->key=key; j->keep=1; j->sep=1; j->stype=shader_gl_type(s->stage);
-  if(g_worker==1 && wr_push(&wq_hi,j)){ s->sj=j; s->sps=1; return 0; }
+  if(g_worker==1 && sh_queue(j,must_wait)){ s->sj=j; s->sps=1; return 0; }
   /* no compile thread, do it inline */
   GLuint a=glCreateShader(j->stype); const char* s1=s->src; glShaderSource(a,1,&s1,NULL); glCompileShader(a);
   GLuint p=glCreateProgram(); glAttachShader(p,a); p_glProgramParameteri(p,0x8258,GL_TRUE); if(g_pcache>0) p_glProgramParameteri(p,GL_PROGRAM_BINARY_RETRIEVABLE_HINT,GL_TRUE);
@@ -3074,8 +3111,8 @@ void r3d_draw_gl(GpuChannel* ch, int indexed, u32 topology, u32 first, u32 count
   int must_wait=writes_storage;
   { u32 ctl=r[0x487]; if((ctl&15)>=1){ u32* q=&r[0x200+((ctl>>4)&7)*0x10];
       if(q[0]|q[1]){ if(((q[5]>>16)&1) || (q[6]&0xFFFF)>1 || (q[2] && q[3] && q[2]<=128 && q[3]<=128)) must_wait=1; } } }
-  if(must_wait && g_sep>0){ u64 t0=plat_ns(); while((!sh_sep_ready(vs) || (gs && !sh_sep_ready(gs)) || !sh_sep_ready(fs)) && plat_ns()-t0<3000000000ull) plat_sleep_ns(500000); st_waited++; }
-  if(g_sep>0){ int rv, rg=1, rf; TM(TM_SHREADY,(rv=sh_sep_ready(vs), rg=gs?sh_sep_ready(gs):1, rf=sh_sep_ready(fs)));
+  if(must_wait && g_sep>0){ u64 t0=plat_ns(); while((!sh_sep_ready(vs,1) || (gs && !sh_sep_ready(gs,1)) || !sh_sep_ready(fs,1)) && plat_ns()-t0<3000000000ull) plat_sleep_ns(500000); st_waited++; }
+  if(g_sep>0){ int rv, rg=1, rf; TM(TM_SHREADY,(rv=sh_sep_ready(vs,must_wait), rg=gs?sh_sep_ready(gs,must_wait):1, rf=sh_sep_ready(fs,must_wait)));
     if(!rv || !rg || !rf){ st_compiling++; trace_note("DRAW SKIPPED: compiling\n"); return; }
     if(!vs->sp || (gs && !gs->sp) || !fs->sp){ st_noprog++; trace_note("DRAW SKIPPED: shader without program vs=%016llx gs=%016llx fs=%016llx\n",(unsigned long long)vs->hash,(unsigned long long)(gs?gs->hash:0),(unsigned long long)fs->hash); return; }
     vpp=vs->sp; vpl=vs->uloc; if(gs){ gsp=gs->sp; glp=gs->uloc; } atp=fs->sp; atl=fs->uloc; }
@@ -3860,7 +3897,7 @@ static void res_dyn_step(void){
   rd_t0=now; rd_f0=g_frame; rd_busy0=g_gpu_busy; rd_cpu0=c; rd_swap=0;
   { static int tst=-1; if(tst<0) tst=getenv("SWR_RES_TEST")!=NULL; if(tst){ rt_rescale(g_scale>0.95f? 0.7f : 1.0f); return; } }   /* test: flip the scale back and forth */
   { /* compiling shaders / loading: those hitches aren't gpu load, don't drop res */
-    static u64 last_new; u32 pend=__atomic_load_n(&wq_hi.t,__ATOMIC_RELAXED)-__atomic_load_n(&wq_hi.h,__ATOMIC_RELAXED);
+    static u64 last_new; u32 pend=sh_pending();
     if(pend>0 || st_sh_new!=last_new){ last_new=st_sh_new; rd_hold=2; return; } }
   if(rd_hold>0){ rd_hold--; return; }
   float mx=g_opt_resf, mn=g_opt_resmin; if(mn>mx) mn=mx;
@@ -3886,7 +3923,7 @@ static void frame_stats(void){
   if(dt>slow_ns && g_rf && g_fr_slow<300){
     extern u64 g_t0_ns(void);
     g_fr_slow++;
-    u32 pend=__atomic_load_n(&wq_hi.t,__ATOMIC_RELAXED)-__atomic_load_n(&wq_hi.h,__ATOMIC_RELAXED);
+    u32 pend=sh_pending();
     fprintf(g_rf,"   %.3f s since launch, frame %llu: slow frame %.0f ms (GPU thread: shaders %.0f+%.0f, state %.0f, textures %.0f, buffers %.0f, driver %.0f, present %.0f ms) new shaders %llu, queued %u\n",
       (now-g_t0_ns())/1e9,(unsigned long long)g_frame,dt/1e6,g_tm[TM_SH]/1e6,g_tm[TM_SHREADY]/1e6,g_tm[TM_STATE]/1e6,g_tm[TM_TEX]/1e6,(g_tm[TM_BUF]+g_tm[TM_CB]+g_tm[TM_GB])/1e6,g_tm[TM_DRAW]/1e6,g_tm[TM_SWAP]/1e6,(unsigned long long)(st_sh_new-g_fr_shnew),pend);
   }
