@@ -205,14 +205,28 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - During the round 3 replay, a second invocation was rejected and the first test kept running. At the time limit,
   the test process handled the close request and exited with code 0.
 
-### Bug 14: Waluigi's initial character preview can distort (open)
+### Bug 14: Waluigi's initial character preview can distort (fixed)
 - With Waluigi already highlighted on entry, large triangles obscure the preview across multiple frames. It
   also occurs with a warmed shader cache and with `SWR_VB_FULLCHECK=1`. Moving right to Yoshi and back to Waluigi
   restored the preview in the traced run.
 - The F5 captures show the distortion in the 1232x440 preview render target, before compositing. It is visible
   after draw 31 and grows after draw 33. Both frames use vertex shader `c97c90f30af7f047`, fragment shader
-  `f21a173c54461431` and the same vertex attribute formats. Draw 31's captured vertex constants differ in slots
-  9 and 10. Compare those inputs and their producer across initial selection and reselection.
+  `f21a173c54461431` and the same vertex attribute formats.
+- Reproduced on initial selection with `SWR_CS_SYNC=1`, `SWR_NO_UBO_RING=1` and `SWR_NO_GLQ=1` in separate
+  background runs. Reselecting Waluigi restored the preview in each run.
+- Paired mesh captures had identical index data for draws 31 through 33. The only differing vertex stream was
+  draw 33 slot 13, a 44-byte-stride buffer at `5bef3e600`. On initial selection, 288 of the 369 referenced
+  vertices had a finite position component with magnitude over one million, and 5 had a non-finite position
+  component. After reselection, all referenced positions were finite and their component magnitudes were below 3.
+- The GPU write log recorded three writes to that range on reselection through `cs_apply`, the shared GPU
+  buffer readback path. It recorded no overlapping writes before the distorted draw. The three writes came
+  from draws using vertex shaders `9d08ac149b01f6cc` and `3ef66eed5c63a8a4` with the empty fragment shader.
+- With `SWR_SYNC_SHADERS=1`, all three writes ran on first entry and the preview rendered correctly. While
+  shaders were pending on the default asynchronous path, those one-time draws could be skipped. The renderer
+  now uses its existing bounded shader wait for draws that write storage buffers, even when they have render targets.
+- Verified correct first-entry Waluigi previews in background tests with an empty runtime shader cache and a
+  warmed cache. Three shader compiler threads were active in both runs. The rebuilt runtime also resumed a
+  Roll 'em Raceway save and reached the turn 1 dice menu in a background replay.
 
 ### Bug 15: cached shader jobs looked unfinished in compile traces (fixed)
 - Board-load triage needs to distinguish driver time spent loading a binary from time spent compiling source.
@@ -352,7 +366,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 | 2026-11-25 | board prompts | four-dot icons showed Switch positions with an Xbox pad | fixed (bug 11) |
 | 2026-11-25 | minigame select | black background instead of the board | worked around (bug 12), cause open |
 | 2026-11-25 | anywhere | a stray Esc closed the game | changed: hold 1.5 s |
-| 2026-11-26 | character select | rapid switching hit a 1.33 s frame gap alongside three roughly 1.29 s shader compiles. The same input schedule on a warmed cache had no reported gap over 50 ms during switching. Waluigi's preview distorted on entry in both runs. | switching away and back restored the preview (bug 14). The first-visit hitch is still open |
+| 2026-11-26 | character select | rapid switching hit a 1.33 s frame gap alongside three roughly 1.29 s shader compiles. The same input schedule on a warmed cache had no reported gap over 50 ms during switching. Waluigi's preview distorted on entry in both runs. | the preview distortion is fixed (bug 14). The first-visit hitch is still open |
 | 2026-11-26 | board load and general play | first board load had a 449 ms frame on the installed runtime and a 468 ms frame on the rebuilt runtime. The latter included 141 ms of texture work and 47 ms of shader work on the GPU thread. | load hitch reproduced. The rest of the frame and the reported spikes during ordinary play are still open |
 | 2026-11-26 | resume screen | the existing turn-2 party shows 12/31/1969 on the rebuilt runtime | matches the legacy save behavior in bug 6. The stored date belongs to party creation and is retained on resume |
 | 2026-11-25 | resuming a party | a few white frames (~2 s) between "Continue?" and the board | to check against the console (probably the load fade) |
@@ -364,8 +378,8 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
    game's own fade or a rendering bug.
 2. Plaza overview: the paving around the fountain looks noisy from far away (reported; likely the texture's lower
    mips, ASTC decoded to BC3 on GPUs without ASTC). Not reproduced yet: needs the first-visit plaza tour.
-3. Character select: trace the inputs to the preview draw on initial selection and reselection (bug 14). For the
-   first-visit switching hitch, check why in-driver shader compilation coincides with a gap on the presentation thread.
+3. Character select: for the first-visit switching hitch, check why in-driver shader compilation coincides
+   with a gap on the presentation thread.
 4. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
 5. Small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and match frame timestamps to asset loads. For the
    reproducible board load hitch, investigate the time outside the GPU-thread categories before tuning texture work.
@@ -402,3 +416,9 @@ A follow-up Rainbow Galleria resume used identical save copies and empty runtime
 20 seconds after opening the board archive, the longest frame gaps were 522 ms with the default configuration
 and 498 ms with `SWR_DRV_EXCL=1`. Each run recorded six gaps over 50 ms and none over 1.5 s. This resume test
 did not reproduce the multi-second pause from new-party entry. The default driver configuration stays in use.
+
+Later runs started a new Rainbow Galleria party with an empty runtime shader cache, both directly and after
+resuming and exiting Mega Wiggler's Tree Party in the same process. The largest recorded frame gaps during
+entry were 545 ms and 573 ms, respectively. Texture work on the GPU thread accounted for 267 ms and 298 ms of
+those frames. The transition replay ran for about 41 seconds after opening the Galleria archive and logged no
+pause over 1.5 s. The original 7.2 s stall remains open.

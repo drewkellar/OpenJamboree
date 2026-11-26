@@ -3068,9 +3068,10 @@ void r3d_draw_gl(GpuChannel* ch, int indexed, u32 topology, u32 first, u32 count
   if(!vs || !fs){ st_noshader++; trace_note("DRAW SKIPPED: no shader\n"); return; }
   if(vs->failed || fs->failed || (gs && gs->failed)){ st_shfail++; trace_note("DRAW SKIPPED: failed shader vs=%016llx(%d) gs=%016llx(%d) fs=%016llx(%d)\n",(unsigned long long)vs->hash,vs->failed,(unsigned long long)(gs?gs->hash:0),gs?gs->failed:0,(unsigned long long)fs->hash,fs->failed); return; }
   Prog* p=NULL; GLuint vpp=0, gsp=0, atp=0; GLint vpl=-1, glp=-1, atl=-1;
-  /* draws into tables (3D/array RTs, or <= 64x64) usually happen once at level load. skipping one while its shader
-     compiles leaves the table empty, so we wait for the compile here (one hitch) */
-  int must_wait=0;
+  /* Storage-buffer writers and draws into table render targets can run only once.
+     Skipping one during compilation can leave later draws with uninitialized data. */
+  int writes_storage=vs->si.gbuf_wmask || (gs && gs->si.gbuf_wmask) || fs->si.gbuf_wmask;
+  int must_wait=writes_storage;
   { u32 ctl=r[0x487]; if((ctl&15)>=1){ u32* q=&r[0x200+((ctl>>4)&7)*0x10];
       if(q[0]|q[1]){ if(((q[5]>>16)&1) || (q[6]&0xFFFF)>1 || (q[2] && q[3] && q[2]<=128 && q[3]<=128)) must_wait=1; } } }
   if(must_wait && g_sep>0){ u64 t0=plat_ns(); while((!sh_sep_ready(vs) || (gs && !sh_sep_ready(gs)) || !sh_sep_ready(fs)) && plat_ns()-t0<3000000000ull) plat_sleep_ns(500000); st_waited++; }
@@ -3105,7 +3106,7 @@ void r3d_draw_gl(GpuChannel* ch, int indexed, u32 topology, u32 first, u32 count
      rasterizer off instead of being dropped. SWR_NO_SIDE_DRAWS=1 drops them like before */
   int side_draw=0;
   { static int nsd=-1; if(nsd<0) nsd=getenv("SWR_NO_SIDE_DRAWS")!=NULL;
-    if(!g_nrt && !g_zt && !nsd && (vs->si.gbuf_wmask || (gs && gs->si.gbuf_wmask) || fs->si.gbuf_wmask)){ side_draw=1;
+    if(!g_nrt && !g_zt && !nsd && writes_storage){ side_draw=1;
       static int said; if(!said){ said=1; LOG("gpu: draws without targets that write storage buffers run with the rasterizer off (vs %016llx)\n",(unsigned long long)vs->hash); } } }
   if(!g_nrt && !g_zt && !side_draw){ st_nort++; trace_note("DRAW SKIPPED: no target vs=%016llx fs=%016llx count=%u inst=%u rtctl=%x rt0[%08x %08x %08x %08x fmt %x] zeta en=%x fs writes storage=%x\n",(unsigned long long)vs->hash,(unsigned long long)fs->hash,count,instances,
       r[0x487],r[0x200],r[0x201],r[0x202],r[0x203],r[0x204],r[0x54E],fs->si.gbuf_wmask);
