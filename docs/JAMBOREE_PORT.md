@@ -196,6 +196,24 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   copy shader is skipped (`SWR_KEEP_DRAWN_FS=<fs>` picks the shader, `0` turns it off). With it the board shows
   behind "Bonus Minigame!", the roulette list and the result banner.
 
+### Bug 13: the background test runner could close a live game (fixed)
+- The runner stopped every process named `Recomp` before launch, including an existing play session. It also
+  stopped its own process forcibly at the time limit, bypassing runtime shutdown.
+- The runner now refuses to start if Recomp is active. It requests a normal exit at the end and force-stops only
+  its test instance if the request fails or the instance is still running after five seconds. `-GameDir` lets
+  repeat tests use a separate save and configuration while reading the dump in place.
+- During the round 3 replay, a second invocation was rejected and the first test kept running. At the time limit,
+  the test process handled the close request and exited with code 0.
+
+### Bug 14: Waluigi's initial character preview can distort (open)
+- With Waluigi already highlighted on entry, large triangles obscure the preview across multiple frames. It
+  also occurs with a warmed shader cache and with `SWR_VB_FULLCHECK=1`. Moving right to Yoshi and back to Waluigi
+  restored the preview in the traced run.
+- The F5 captures show the distortion in the 1232x440 preview render target, before compositing. It is visible
+  after draw 31 and grows after draw 33. Both frames use vertex shader `c97c90f30af7f047`, fragment shader
+  `f21a173c54461431` and the same vertex attribute formats. Draw 31's captured vertex constants differ in slots
+  9 and 10. Compare those inputs and their producer across initial selection and reselection.
+
 ### Esc quit the game on a stray press
 - Esc now has to be held 1.5 s (the window title shows "Hold Esc to quit" while it is down). Closing the window and
   Alt+F4 work as before.
@@ -238,6 +256,7 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_BRX_DUMP=1` | with `no LDC found`, lists the 64 instructions before the BRX |
 | (always) `shader: BRX at ...` | why a jump table couldn't be resolved |
 | (always) `pause: N s without a new image` | every gap over 1.5 s between frames (loads, stalls), with its length |
+| `SWR_SLOW_FRAME_MS=50` | report frame gaps over 50 ms in `performance.txt`, with time since launch, frame number, GPU-thread work and shader queue depth. Default is 120 ms, up to 300 reports per run |
 | `SWR_TRACE_TIME=1` | logs every time service call (clock, time zone, shared memory) |
 | `SWR_TRACE_FN=addr,...` | (existing) now also shows the 16 bytes at the first argument after the call, for out pointers |
 | `SWR_INPUT_UNFOCUSED=1` | keys posted to the window count while it isn't in front (`run.ps1` sets it) |
@@ -257,9 +276,10 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `_work/sdis.py <sh_*.bin>` | rough listing of a dumped shader (word index = `case N` in the GLSL, guards, CC tests) |
 | (F5 trace) | each draw also lists scissor, clip control, depth bias, stencil function, vertex attribute formats; a skipped target-less draw lists its targets, stream-out state and storage writes and dumps its vertex shader |
 
-Tools in `_work/`: `run.ps1` (launch, screenshots through the runtime's F8 capture, keys posted to the game
-window with `Q+E` chords and `vk@ms` holds, kill; it sets `SWR_INPUT_UNFOCUSED=1`, and a desktop capture of the GL
-window comes out black; runs in background mode unless `-Foreground` is given), `fn.sh` (print the generated C of one function), `dynsym.py`
+Tools in `_work/`: `run.ps1` launches in the background unless `-Foreground` is given. It posts keys to the game
+window with `Q+E` chords and `vk@ms` holds, uses the runtime's F8 capture for screenshots, and requests a normal exit
+when time is up. It refuses to start while Recomp is running. Use `-GameDir` for a separate test install that links
+the dump in place and uses its own save directory. Other tools include `fn.sh` (print the generated C of one function), `dynsym.py`
 (symbolize `SWR_TRACE_DYN` output), `build.py`
 (rebuild the runtime, ~30 s), `stackdump.c` + `resolve.py` (every host thread's stack, symbolized), `glcompile.c`
 (compile one GLSL file on the real driver and time it), `syms.py` (search the dump's symbol tables), `thr.py`
@@ -325,22 +345,23 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 | 2026-11-25 | board prompts | four-dot icons showed Switch positions with an Xbox pad | fixed (bug 11) |
 | 2026-11-25 | minigame select | black background instead of the board | worked around (bug 12), cause open |
 | 2026-11-25 | anywhere | a stray Esc closed the game | changed: hold 1.5 s |
-| 2026-11-25 | character select | moving between characters quickly can stutter; the newly loaded animated character sometimes looks glitched for a split second | open (owner's playtest) |
-| 2026-11-25 | board, general play | small lag spikes now and then | open (owner's playtest); needs `pause:` log lines and an F5 trace at a spike |
-| 2026-11-25 | resume screen | the party in progress shows 12/31/1969 | to check: the save may predate the bug 6 fix |
+| 2026-11-26 | character select | rapid switching hit a 1.33 s frame gap alongside three roughly 1.29 s shader compiles. The same input schedule on a warmed cache had no reported gap over 50 ms during switching. Waluigi's preview distorted on entry in both runs. | switching away and back restored the preview (bug 14). The first-visit hitch is still open |
+| 2026-11-26 | board load and general play | first board load had a 449 ms frame on the installed runtime and a 468 ms frame on the rebuilt runtime. The latter included 141 ms of texture work and 47 ms of shader work on the GPU thread. | load hitch reproduced. The rest of the frame and the reported spikes during ordinary play are still open |
+| 2026-11-26 | resume screen | the existing turn-2 party shows 12/31/1969 on the rebuilt runtime | matches the legacy save behavior in bug 6. The stored date belongs to party creation and is retained on resume |
 | 2026-11-25 | resuming a party | a few white frames (~2 s) between "Continue?" and the board | to check against the console (probably the load fade) |
-| 2026-11-25 | minigame practice | "-/+ Start!" needs - and + held; the script's taps stay on the practice screen | expected; see hold inputs |
-| 2026-11-24 | board | a waiting player on a far space looked see-through | open |
+| 2026-11-26 | Granite Getaway | on the practice screen, a 1.6 s scripted Plus and Minus chord started the actual minigame. The replay reached the outdoor bridge section. | scripted start verified. Return to the board and physical controller input still need a check |
+| 2026-11-26 | board | a waiting player on a far space looked see-through in an earlier playtest. Mario rendered opaque in the sampled turn-2 view across the mushroom platforms. | exact camera and position from the report still need a reproduction |
 
 ## 8. Next steps
 1. Board: a waiting player (Mario, on a space further down the path) looked see-through. Check whether that's the
    game's own fade or a rendering bug.
 2. Plaza overview: the paving around the fountain looks noisy from far away (reported; likely the texture's lower
    mips, ASTC decoded to BC3 on GPUs without ASTC). Not reproduced yet: needs the first-visit plaza tour.
-3. Character select: switching characters quickly stutters and the new model can flash glitched for a frame (new
-   models and shaders load on demand). Log `pause:` lines and shader compiles (`SWR_CMP_LOG=1`) while cycling.
+3. Character select: trace the inputs to the preview draw on initial selection and reselection (bug 14). For the
+   first-visit switching hitch, check why in-driver shader compilation coincides with a gap on the presentation thread.
 4. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
-5. Small lag spikes during play: catch one with `pause:` lines and an F5 trace.
+5. Small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and match frame timestamps to asset loads. For the
+   reproducible board load hitch, investigate the time outside the GPU-thread categories before tuning texture work.
 6. More minigames and the other boards; a full 10-turn party to the results.
 7. Hold-to-start ("-/+ Start!" in minigame practice) and other hold inputs with a real pad.
 8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
