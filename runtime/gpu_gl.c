@@ -3523,6 +3523,16 @@ static void shot8_capture(GLuint tex, const float* xf, int tw, int th){
       const char* at= e? strchr(e,'@') : NULL; if(at){ from=atof(at+1); const char* c=strchr(at,','); if(c){ mx=atoi(c+1); if(mx<1) mx=1; if(mx>2000) mx=2000; } } }
     if(!t0) t0=plat_ns();
     if(ev>0 && shots<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ g_shot8_req=1; shots++; } }
+  /* SWR_SHOT8_FLAG=N: while a file named burst.flag exists in the game folder, an F8 capture every N presents (a test
+     script creates it when it sees the screen it wants frame by frame); checked every 15 presents, at most 3000 */
+  { static int ev=-1, n, on, shots; if(ev<0){ const char* e=getenv("SWR_SHOT8_FLAG"); ev= e? atoi(e) : 0; }
+    if(ev>0){ if(++n%15==0){ FILE* f=fopen("burst.flag","rb"); on= f!=NULL; if(f) fclose(f); }
+      if(on && shots<3000 && n%ev==0){ g_shot8_req=1; shots++; } } }
+  /* SWR_TRACE_EVERY=N@s,max: an F5 trace every N presents from s seconds (catches glitches whose timing varies) */
+  { static int ev=-1, n, tr, mx=20; static double from; static u64 t0; if(ev<0){ const char* e=getenv("SWR_TRACE_EVERY"); ev= e? atoi(e) : 0;
+      const char* at= e? strchr(e,'@') : NULL; if(at){ from=atof(at+1); const char* c=strchr(at,','); if(c){ mx=atoi(c+1); if(mx<1) mx=1; if(mx>200) mx=200; } } }
+    if(!t0) t0=plat_ns();
+    if(ev>0 && tr<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ g_tr_arm=1; tr++; } }
   if(!g_shot8_req || g_s8_sync) return;
   g_shot8_req=0;
   if(!p_s8map){ p_s8map=(PFNGLMAPBUFFERRANGEPROC)backend_gl_proc("glMapBufferRange"); p_s8unmap=(PFNGLUNMAPBUFFERPROC)backend_gl_proc("glUnmapBuffer");
