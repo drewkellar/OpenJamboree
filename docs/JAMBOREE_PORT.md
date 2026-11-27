@@ -5,7 +5,7 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 
 ## 1. Status
 
-Last updated 2026-11-27 (fast-forward playtest follow-up). Keep this table current with every change (see `AGENTS.md`).
+Last updated 2026-11-27 (owner-confirmed fast-forward). Keep this table current with every change (see `AGENTS.md`).
 
 | Area | State |
 | --- | --- |
@@ -19,7 +19,7 @@ Last updated 2026-11-27 (fast-forward playtest follow-up). Keep this table curre
 | Menus | player count, character select (3D preview), Party Plaza hub (walk, talk, Toad's tutorial), balloon tour and mode list (`menu01.nro`), party rules, opponent/board setup |
 | Boards | all seven load and play their first turn (section 9). Mega Wiggler's Tree Party (`bd01.nro`) plays further: intro, dice/items/board menu, HUD, CPU turns, minigame and back, autosave, 55-60 FPS. Full 10-turn parties not played through yet |
 | Minigames | **107 of 112** played from practice to the results in Minigame Bay (section 10); the other 5 are locked on the test save. Sandwiched also played inside a party, back to the board |
-| Fast-forward | F8 cycles 1x, 2x and 4x on the current OpenGL runtime. Heavy scenes in the opening fell short of the targets |
+| Fast-forward | The owner confirmed fast-forward works on the updated OpenGL runtime. Heavy scenes in the opening fell short of the targets |
 | Motion minigames (25) | **fixed** (bug 19): play as one Joy-Con with F9; right stick tilts, O shakes. Feel still to be checked by the owner (M10) |
 | New party | works: party rules tutorial (scroll with the D-pad), board and settings, turn order, first turn, autosave |
 | Pause menu on the board | works (Resume, exit to the balloon or plaza with its confirmation) |
@@ -38,7 +38,7 @@ Last updated 2026-11-27 (fast-forward playtest follow-up). Keep this table curre
 | Minigame select background | worked around (bug 12): the board shows behind the list instead of black; the real cause is open |
 | Esc | no longer quits on a tap: hold it 1.5 s (the title bar says so) |
 | Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); a stalled output device no longer freezes the game (bug 20). Not checked by ear |
-| Owner checks | M1-M11 pending (section 7) |
+| Owner checks | M1-M10 pending. The owner confirmed M11 on the updated runtime (section 7) |
 
 Fastest path to a board with a save (keys): + skips the intro, Q+E at the title, A through the plaza, then in the
 balloon pick Mario Party; ~2.5 min from launch. With `_work/run.ps1`: `-Keys` = `12:0x0D@500,22:0x51+0x45@500,
@@ -497,7 +497,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 | Date | Where | What | State |
 | --- | --- | --- | --- |
-| 2026-11-27 | Owner fast-forward trial | F8 saved screenshots and smooth recording started on the November 25 executable. | old runtime replaced (bug 21). Pitch and gameplay timing still need a check on the current build |
+| 2026-11-27 | Owner fast-forward trial | F8 saved screenshots and smooth recording started on the November 25 executable. | old runtime replaced (bug 21). The owner confirmed fast-forward worked after launching the updated executable |
 | 2026-11-27 | Windows/OpenGL hotkeys | The remapped keys saved an F5 trace, an F6 recording and two F7 PNGs. F6 returned the game to 1x. F8 cycled the speed before and after recording. F9 switched controller 1 to one Joy-Con and back. | background smoke check passed |
 | 2026-11-27 | Windows/OpenGL opening, isolated Minigame Bay save | Background 1x, 2x and 4x runs completed and full-resolution captures showed some progression gains at the faster settings. Heavy sections stayed around 42-50 guest presents/s across all three targets. A scripted run cycled the speed through all three speeds, captured an F5 trace at 4x, and saved a video recording with 0 dropped frames and 0 lost audio packets. | controls and diagnostics verified. Full target progression and audible transitions remain open |
 | 2026-11-27 | Raceway, turn 2 | A 4x-target background replay resumed the board, advanced the Jamboree Buddy tutorial and completed CPU actions without a stall report. Before board entry, a lighter scene reached 107 guest presents/s with 60 window swaps/s. | board CPU turn smoke check passed. Exact turn speed still needs matched runs |
@@ -535,10 +535,10 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 | M8 | Jr.'s Jauntlet | the arena floor has horizontal scanlines over its pictures (screen effect?) | pending |
 | M9 | Rewards screen | the area below the header is plain black | pending |
 | M10 | Motion minigames | with F9 (one Joy-Con) the right stick tilts and O shakes; do the 25 motion games feel playable? | pending |
-| M11 | Fast-forward audio | Check pitch and continuity at 1x, 2x and 4x during play and when switching back to 1x. | initial report came from the older runtime (bug 21). Current build pending |
+| M11 | Fast-forward audio | Check pitch and continuity at 1x, 2x and 4x during play and when switching back to 1x. | Owner confirmed fast-forward worked after launching the updated executable (bug 21) |
 
 ## 8. Next steps
-1. Owner checks M1-M11 (section 7): fold the results back into the playtest log and fix what differs.
+1. Owner checks M1-M10 (section 7): fold the results back into the playtest log and fix what differs.
 2. First-entry board stalls (2.7-7.2 s, section 9) and small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and
    match frame timestamps to asset loads. For the reproducible board load hitch, investigate the time outside the
    GPU-thread categories before tuning texture work.
