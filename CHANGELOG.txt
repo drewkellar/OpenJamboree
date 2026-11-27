@@ -4,6 +4,7 @@ Newest first. Every change adds its line here (see AGENTS.md); details, evidence
 docs/JAMBOREE_PORT.md under the bug number.
 
 - Background tests capture screenshots only on request, cap automated bursts, and support cleaning up completed replays.
+- Save-library replays can share a build's binaries while keeping independent saves and logs.
 - The README explains how to identify an older runtime when testing fast-forward.
 - Playtest shortcuts now use F6 for video, F7 for full-resolution PNGs, and F9 for one Joy-Con.
 - Press F8 on OpenGL to cycle the fast-forward target between 1x, 2x and 4x for playtesting.

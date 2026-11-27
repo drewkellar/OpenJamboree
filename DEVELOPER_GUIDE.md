@@ -153,6 +153,24 @@ Automated F7 schedules and `burst.flag` share a limit of 12 captures per launch
 reproduction. Explicit F7 presses and `-ShotList` still work. `SWR_TRACE_EVERY` defaults to
 one trace when enabled. Specify a larger maximum only for a problem that needs repeated traces.
 
+#### Sharing replay binaries
+
+Keep one immutable binary snapshot per build you still need to replay. A replay can use hard links to
+that snapshot's `Recomp.exe` and `Recomp_code.dll` when both directories are on the same NTFS volume.
+Create a new snapshot directory for a rebuild so existing replays continue to use their original binaries.
+Avoid linking to a working executable or DLL that a build might overwrite.
+
+Keep a separate working save for every replay because the game autosaves. Logs, settings, and
+`Recomp.hints` also belong to the individual replay. For a cold-load test, give the replay its own
+empty shader cache. Restore the original start point by preparing a fresh replay from its named checkpoint.
+
+The save-library helper can stage hard links from a prepared build snapshot. Supply the snapshot
+directory, which must contain both binaries and its replay configuration (`Recomp.ini`).
+
+```powershell
+$replay = _work/save-library/prepare.ps1 -Checkpoint raceway-turn-02 -RuntimeDir $snapshot -ShareBinaries
+```
+
 Once a dated replay is complete, keep the small set of evidence needed for review and record the
 result in the port notes. Move selected screenshots into the evidence folder to avoid storing them twice.
 Preview and clear generated artifacts by replay name. The script

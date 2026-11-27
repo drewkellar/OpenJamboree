@@ -155,6 +155,10 @@ checking that texture previews are available on request.
 Review `_work/finish-replay.ps1 -Replay <name>` before using `-Apply`. On a disposable replay,
 check that captures and shader caches are cleared while logs, saves and checkpoints remain.
 
+Prepare a replay with `-ShareBinaries` from an immutable build snapshot on the same NTFS volume.
+Check that both binaries are hard links and the save files and optional hints are independent copies.
+After cleaning up the replay binaries, verify that the snapshot can still seed another replay.
+
 ## When something breaks
 
 1. **Find the change.** Most fixes have a switch that turns them off (`grep -n 'getenv("SWR_' runtime/*.c`). Run

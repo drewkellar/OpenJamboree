@@ -380,6 +380,8 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   per-launch budget. Background frame traces keep draw data and omit images by default.
 - Use `_work/finish-replay.ps1` to review and clear captures, caches and optional binary copies from
   a completed replay. The original checkpoints, run saves and logs stay available.
+- The save-library replay helper supports sharing binaries from one immutable build snapshot. Each
+  replay still gets its own working save, configuration and hints.
 - A background validation run wrote one draw trace with zero images. A three-image automated budget
   held with both schedulers enabled, and an explicit F7 request still produced a separate screenshot.
   Opting in to F5 images restored the trace previews.

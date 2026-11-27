@@ -71,6 +71,8 @@ changed, so the owner can see they're current.
   the owner's pad and keyboard ignored, so tests don't interrupt someone using the PC. Don't launch the game in the
   foreground (`-Foreground`, or `Recomp.exe` directly) unless the owner says it's fine at that time.
 - Record each bug's evidence, cause and fix in `docs/JAMBOREE_PORT.md` in the same PR as the fix.
+- When staging multiple replays of one build, share its binary snapshot on the same volume. Give each replay
+  its own working saves and logs. Use a fresh shader cache for cold-load comparisons. See the developer guide.
 - Before finishing, record the result and retain only the screenshots or trace files needed for review or an open
   bug. Clear the generated artifacts from test replays created for the task once the needed evidence is saved.
   Preview a completed replay with `_work/finish-replay.ps1 -Replay <name>`, then use `-Apply` to remove its captures
