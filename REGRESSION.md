@@ -143,6 +143,18 @@ Intel's Windows driver is where most freezes come from (driver exclusive mode, t
 
 ---
 
+## Background capture and replay cleanup
+
+Run a replay without `-ShotList`. Confirm that it produces no automatic screenshots with the default
+environment. With `SWR_TRACE_EVERY=150@2`, expect one trace containing draw data and no PPMs. To
+test a burst, set `SWR_SHOT8_EVERY=2`, `SWR_SHOT8_FLAG=1` with a `burst.flag` file, and
+`SWR_TEST_SHOT_LIMIT=3`. The two schedules share the three-image limit. An explicit F7 capture
+still works after the budget is exhausted. Run a one-frame trace with `SWR_TRACE_IMAGES=1` when
+checking that texture previews are available on request.
+
+Review `_work/finish-replay.ps1 -Replay <name>` before using `-Apply`. On a disposable replay,
+check that captures and shader caches are cleared while logs, saves and checkpoints remain.
+
 ## When something breaks
 
 1. **Find the change.** Most fixes have a switch that turns them off (`grep -n 'getenv("SWR_' runtime/*.c`). Run

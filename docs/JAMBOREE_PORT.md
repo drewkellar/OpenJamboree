@@ -5,7 +5,7 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 
 ## 1. Status
 
-Last updated 2026-11-27 (owner-confirmed fast-forward). Keep this table current with every change (see `AGENTS.md`).
+Last updated 2026-11-27. Keep this table current with every change (see `AGENTS.md`).
 
 | Area | State |
 | --- | --- |
@@ -38,6 +38,7 @@ Last updated 2026-11-27 (owner-confirmed fast-forward). Keep this table current 
 | Minigame select background | worked around (bug 12): the board shows behind the list instead of black; the real cause is open |
 | Esc | no longer quits on a tap: hold it 1.5 s (the title bar says so) |
 | Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); a stalled output device no longer freezes the game (bug 20). Not checked by ear |
+| Background test evidence | Explicit milestone screenshots, bounded automatic captures, and cleanup for finished replays (bug 23) |
 | Owner checks | M1-M10 pending. The owner confirmed M11 on the updated runtime (section 7) |
 
 Fastest path to a board with a save (keys): + skips the intro, Q+E at the title, A through the plaza, then in the
@@ -370,6 +371,19 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - The rebuilt runtime is ~5 MB; the shipped one was ~20 MB because it also had the optional `renderer=vulkan/eden`
   libraries, whose prebuilt archives aren't in this package. `renderer=opengl` (default) is what's used.
 
+### Bug 23: completed test runs accumulated too much evidence
+
+- The owner found 7,064 images in one Minigame Bay replay. That sweep captured a frame roughly every
+  1.3 seconds. The original captures stayed on disk even after evidence was collected. Replay folders
+  also kept shader caches and full copies of the locally built code DLL.
+- The runner takes screenshots only at requested milestones. Automatic screenshot schedules share a
+  per-launch budget. Background frame traces keep draw data and omit images by default.
+- Use `_work/finish-replay.ps1` to review and clear captures, caches and optional binary copies from
+  a completed replay. The original checkpoints, run saves and logs stay available.
+- A background validation run wrote one draw trace with zero images. A three-image automated budget
+  held with both schedulers enabled, and an explicit F7 request still produced a separate screenshot.
+  Opting in to F5 images restored the trace previews.
+
 ## 3. Features added
 
 - `game_dump=` (new `[Game]` section in the game's `.ini`): exefs and romfs are read from the user's own extracted
@@ -418,9 +432,11 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_BACKGROUND=1` | background test mode: the window sits past the right edge of all monitors, is never activated, has no taskbar or Alt+Tab entry; sound is silenced (still sent to the device so audio timing is unchanged); the real pad, mouse and keyboard are ignored, only posted keys count. F7 captures and logs work as usual. `run.ps1` sets it unless `-Foreground` |
 | `SWR_SPEED=1`, `SWR_SPEED=2` or `SWR_SPEED=4` | startup fast-forward target on OpenGL, for scripted tests. Invalid values use 1x |
 | `SWR_MUTE=1` | silence only, everything else as normal |
-| `SWR_SHOT8_EVERY=N[@s[,max]]` | an F7 capture every N presented frames, optionally from s seconds after the first frame and up to max captures (default 40): shows frame by frame how long a transition or glitch lasts |
-| `SWR_SHOT8_FLAG=N` | while a file `burst.flag` exists in the game folder, an F7 capture every N presents (a test script creates it when OCR sees the screen it wants) |
-| `SWR_TRACE_EVERY=N[@s[,max]]` | an F5 trace every N presents from s seconds, up to max (default 20) |
+| `SWR_SHOT8_EVERY=N[@s[,max]]` | an F7 capture every N presented frames, optionally from s seconds after the first frame and up to max captures (default 40, also subject to the shared screenshot budget) |
+| `SWR_SHOT8_FLAG=N` | while `burst.flag` exists in the game folder, an F7 capture every N presents within the shared screenshot budget |
+| `SWR_TEST_SHOT_LIMIT=N` | total automated F7 captures per launch (default 12, 0 to disable, maximum 3,000). Manual F7 and runner milestones still work |
+| `SWR_TRACE_EVERY=N[@s[,max]]` | an F5 trace every N presents from s seconds, up to max (default one trace) |
+| `SWR_TRACE_IMAGES=0/1` | omit or enable F5 image dumps. Background tests omit them by default. Draw logs, shaders and constant buffers are retained |
 | (F5 trace) | line draws also list the line widths, the shader stage registers and the first 16 vertices' float attributes; every draw lists the provoking vertex |
 | `SWR_AUDIO_STALL_AT=<s>` | test: pause the Windows audio device once after s seconds, to check that a stalled device doesn't freeze the game (bug 20) |
 | `SWR_SINGLE_JOYCON=1` / `SWR_NO_SINGLE_JOYCON=1` | start controller 1 as one Joy-Con / never switch to it (bug 19) |

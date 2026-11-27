@@ -1,15 +1,15 @@
-param([int]$Seconds=40, [string]$ShotList="10,20,30,40", [string]$Tag="run", [string]$Keys="", [switch]$Foreground, [string]$GameDir)
-# Launches a test instance, takes screenshots at the given times, then closes that instance.
+param([int]$Seconds=40, [string]$ShotList="", [string]$Tag="run", [string]$Keys="", [switch]$Foreground, [string]$GameDir)
+# Launches a test instance and captures screenshots only at requested times.
 # By default the game runs in background mode (SWR_BACKGROUND=1): off-screen, never focused, muted, the real pad
 # and keyboard ignored, so a test does not disturb someone using the PC. -Foreground shows the window as usual.
 $ErrorActionPreference = "Stop"
-$Shots = @($ShotList.Split(",") | ForEach-Object { [int]$_ })
+$Shots = @(if ($ShotList.Trim()) { $ShotList.Split(",") | ForEach-Object { [int]$_ } })
 $root = Split-Path -Parent $PSScriptRoot   # the Switch2Recomp folder
 $game = if ($GameDir) { (Resolve-Path -LiteralPath $GameDir).Path } else { Join-Path $root "games" }
 $exe = Join-Path $game "Recomp.exe"
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Test executable not found at $exe" }
 $out  = Join-Path $PSScriptRoot "shots"
-New-Item -ItemType Directory -Force $out | Out-Null
+if ($Shots.Count) { New-Item -ItemType Directory -Force $out | Out-Null }
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System; using System.Runtime.InteropServices;

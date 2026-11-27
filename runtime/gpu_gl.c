@@ -2681,6 +2681,15 @@ static GLuint buf_cached(GLenum target, u64 start, u64 len){
 
 /* ============================================================ F5 frame trace */
 static int g_tr_arm, g_tr_on, g_tr_n, g_tr_img; static FILE* g_tr;
+static int trace_images(void){
+  static int enabled=-1;
+  if(enabled<0){
+    const char* images=getenv("SWR_TRACE_IMAGES");
+    const char* background=getenv("SWR_BACKGROUND");
+    enabled=images? strcmp(images,"0")!=0 : !background || *background!='1';
+  }
+  return enabled;
+}
 static Tex* g_tr_tex[2048]; static int g_tr_ntex;
 static u64 g_tr_sh[1024]; static int g_tr_nsh; static int g_tr_gen;
 /* every F5 gets its own folder: captures/traces/1, 2... */
@@ -2711,8 +2720,9 @@ static void tr_save(const char* path, const u8* rgba, u32 w, u32 h){
 
 static void tr_thumb_(Tex* t, char* out, int unit);
 static void tr_thumb(Tex* t, char* out){ tr_thumb_(t,out,-1); }
-static void tr_thumb_(Tex* t, char* out, int unit){ state_dirty();
-  strcpy(out,"-"); if(!t || t->f.depth || t->f.is_int || g_tr_img>=2500) return;
+static void tr_thumb_(Tex* t, char* out, int unit){
+  strcpy(out,"-"); if(!trace_images()) return;
+  state_dirty(); if(!t || t->f.depth || t->f.is_int || g_tr_img>=2500) return;
   if(!g_tr_fb){ glGenFramebuffers(1,&g_tr_fb); glGenTextures(1,&g_tr_tx); glBindTexture(GL_TEXTURE_2D,g_tr_tx); glTexStorage2D(GL_TEXTURE_2D,1,GL_RGBA8,TRW,TRH); }
   GLboolean sc=glIsEnabled(GL_SCISSOR_TEST), sr=glIsEnabled(GL_FRAMEBUFFER_SRGB);
   glDisable(GL_SCISSOR_TEST); glDisable(GL_FRAMEBUFFER_SRGB); glColorMaski(0,1,1,1,1);
@@ -2932,7 +2942,7 @@ static void trace_frame(void){
         if(px){ double m[4]={0};
           for(u32 k=0;k<W*H*D;k++) for(int c=0;c<4;c++) m[c]+=px[k*4+c];
           trace_note("   texel0=(%.4g,%.4g,%.4g,%.4g) mean=(%.4g,%.4g,%.4g,%.4g)\n",px[0],px[1],px[2],px[3],m[0]/(W*H*D),m[1]/(W*H*D),m[2]/(W*H*D),m[3]/(W*H*D)); free(px); mb_reset(); } }
-      if(t->f.depth || t->f.is_int || (t->target!=GL_TEXTURE_2D && t->target!=GL_TEXTURE_2D_ARRAY)) continue;
+      if(!trace_images() || t->f.depth || t->f.is_int || (t->target!=GL_TEXTURE_2D && t->target!=GL_TEXTURE_2D_ARRAY)) continue;
       /* GPU downsizes to max 512 and we read only that; layer 0 for arrays */
       u32 w=TW(t), h=TH(t);
       u32 st=1; while(w/st>512 || h/st>512) st*=2; u32 ow=w/st? w/st : 1, oh=h/st? h/st : 1;
@@ -3545,20 +3555,29 @@ static void shot8_poll(void){
 
 static void shot8_capture(GLuint tex, const float* xf, int tw, int th){
   shot8_poll();
-  { static int tf; if(!tf){ tf= getenv("SWR_SHOT8_TEST")? 1 : -1; } if(tf>0 && ++tf==40) g_png_capture_req=1; }   /* automated test hook */
+  static int limit=-1, total;
+  if(limit<0){
+    const char* e=getenv("SWR_TEST_SHOT_LIMIT");
+    limit=e? atoi(e) : 12;
+    if(limit<0) limit=0;
+    if(limit>3000) limit=3000;
+  }
+  int scheduled=0;
+  { static int tf; if(!tf){ tf= getenv("SWR_SHOT8_TEST")? 1 : -1; } if(tf>0 && tf<40 && ++tf==40) scheduled=1; }
   /* SWR_SHOT8_EVERY=N[@s[,max]]: an F7 capture every N presents (tests), optionally from s seconds after the first
      present and up to max captures (default 40); short bursts show how long a transition lasts */
   { static int ev=-1, n, shots, mx=40; static double from; static u64 t0; if(ev<0){ const char* e=getenv("SWR_SHOT8_EVERY"); ev= e? atoi(e) : 0;
       const char* at= e? strchr(e,'@') : NULL; if(at){ from=atof(at+1); const char* c=strchr(at,','); if(c){ mx=atoi(c+1); if(mx<1) mx=1; if(mx>2000) mx=2000; } } }
     if(!t0) t0=plat_ns();
-    if(ev>0 && shots<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ g_png_capture_req=1; shots++; } }
+    if(ev>0 && total<limit && shots<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ scheduled=1; shots++; } }
   /* SWR_SHOT8_FLAG=N: while a file named burst.flag exists in the game folder, an F7 capture every N presents (a test
-     script creates it when it sees the screen it wants frame by frame); checked every 15 presents, at most 3000 */
-  { static int ev=-1, n, on, shots; if(ev<0){ const char* e=getenv("SWR_SHOT8_FLAG"); ev= e? atoi(e) : 0; }
-    if(ev>0){ if(++n%15==0){ FILE* f=fopen("burst.flag","rb"); on= f!=NULL; if(f) fclose(f); }
-      if(on && shots<3000 && n%ev==0){ g_png_capture_req=1; shots++; } } }
+     script creates it when it sees the screen it wants frame by frame); checked every 15 presents */
+  { static int ev=-1, n, on; if(ev<0){ const char* e=getenv("SWR_SHOT8_FLAG"); ev= e? atoi(e) : 0; }
+    if(ev>0 && total<limit){ if(++n%15==0){ FILE* f=fopen("burst.flag","rb"); on= f!=NULL; if(f) fclose(f); }
+      if(on && n%ev==0) scheduled=1; } }
+  if(scheduled && total<limit && !g_png_capture_req && !g_s8_sync){ g_png_capture_req=1; total++; }
   /* SWR_TRACE_EVERY=N@s,max: an F5 trace every N presents from s seconds (catches glitches whose timing varies) */
-  { static int ev=-1, n, tr, mx=20; static double from; static u64 t0; if(ev<0){ const char* e=getenv("SWR_TRACE_EVERY"); ev= e? atoi(e) : 0;
+  { static int ev=-1, n, tr, mx=1; static double from; static u64 t0; if(ev<0){ const char* e=getenv("SWR_TRACE_EVERY"); ev= e? atoi(e) : 0;
       const char* at= e? strchr(e,'@') : NULL; if(at){ from=atof(at+1); const char* c=strchr(at,','); if(c){ mx=atoi(c+1); if(mx<1) mx=1; if(mx>200) mx=200; } } }
     if(!t0) t0=plat_ns();
     if(ev>0 && tr<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ g_tr_arm=1; tr++; } }
@@ -4208,7 +4227,7 @@ static void gpu_thread(void* arg){ t_gpu_thread=1;
         g_present_guest_ns=w.sub_ns;
         if(!present_addr(w.addr,w.w,w.h)){ extern void vi_convert_cpu(u64 a, u32 w, u32 h, u32 pitch, u32 layout, u32 bhl, u32 fmt, u32* out);
           u32* px=malloc((size_t)w.w*w.h*4); vi_convert_cpu(w.addr,w.w,w.h,w.n,(w.fmt>>8)&15,(w.fmt>>12)&15,w.fmt&0xFF,px); present_cpu(px,w.w,w.h); free(px); } g_frame++; g_skip_frame= frame_skip_count() && g_frame%(frame_skip_count()+1); gpu_evict_step(); frame_stats(); trace_frame(); break;
-      case WK_DUMP: dump_rts(); g_tr_arm=1; break;
+      case WK_DUMP: if(trace_images()) dump_rts(); g_tr_arm=1; break;
       case WK_SHOT: do_screenshot(w.path[0]? w.path : NULL); __atomic_store_n(&g_shot_done,w.n,__ATOMIC_SEQ_CST); break;
     }
     g_gpu_busy+=plat_ns()-t_busy0;

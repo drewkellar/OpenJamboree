@@ -65,9 +65,14 @@ changed, so the owner can see they're current.
 ## Build and test
 
 - Rebuild the runtime: `python/python.exe _work/build.py` (about 30 s) → copy `_work/runtime_test.exe` to `games/Recomp.exe`.
-- Run and screenshot: `_work/run.ps1 -Seconds N -ShotList "a,b" -Tag t -Keys "t:vk,t:vk+vk@ms"` (uses the runtime's F7
-  capture). Path to a board with a save: see `docs/JAMBOREE_PORT.md`.
+- Run with `_work/run.ps1 -Seconds N -Keys "t:vk,t:vk+vk@ms"`. Add `-ShotList "a,b" -Tag t` for specific F7
+  captures. Usually one to three screenshots cover a visual check. Path to a board with a save: see `docs/JAMBOREE_PORT.md`.
 - Test runs use background mode (the default in `run.ps1`, `SWR_BACKGROUND=1`): off-screen, never focused, muted,
   the owner's pad and keyboard ignored, so tests don't interrupt someone using the PC. Don't launch the game in the
   foreground (`-Foreground`, or `Recomp.exe` directly) unless the owner says it's fine at that time.
 - Record each bug's evidence, cause and fix in `docs/JAMBOREE_PORT.md` in the same PR as the fix.
+- Before finishing, record the result and retain only the screenshots or trace files needed for review or an open
+  bug. Clear the generated artifacts from test replays created for the task once the needed evidence is saved.
+  Preview a completed replay with `_work/finish-replay.ps1 -Replay <name>`, then use `-Apply` to remove its captures
+  and shader cache. Add `-Binaries` when the replay's executable and DLL copies can be discarded. Keep checkpoints,
+  saves and logs. See the developer guide for the capture limits.
