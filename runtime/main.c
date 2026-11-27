@@ -245,6 +245,7 @@ static const IniOpt INI_PERF[]={
   {"memory_gb","0","Memory the game sees: 0 = automatic (3.2 GB like the console, more for games that need it,\n;   e.g. Tears of the Kingdom), 4 = console (3.2 GB), 6 or 8 = extended (like yuzu's extended memory layout)"},
   {"driver_exclusive","auto","auto = on for intel on windows (its driver crashes when compiling and drawing at the same time),\n;   1 = always, 0 = never"},
   {"shader_thread","1","1 = compile shaders on a separate thread (no freezes), 0 = on the GPU thread (short freezes;\n;   try it if the game crashes inside the video driver)"},
+  {"shader_process","auto","auto = isolate large shader jobs on NVIDIA on Windows and recover from recorded driver crashes in exclusive mode,\n;   1 = always use the helper for source compilation, 0 = compile in the game process"},
   {"low_priority_shader_compiler","1","1 = compile shaders at low priority (less stutter on weak CPUs)"},
   {NULL,NULL,NULL}};
 

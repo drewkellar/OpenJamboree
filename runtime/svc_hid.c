@@ -5,6 +5,7 @@
 #include "rt.h"
 int g_pad_icons_xbox;   /* the backend maps the face buttons by label (Xbox A = A): gpu_gl.c swaps the icon diamonds */
 #include "hid_layout.h"
+#include <math.h>
 
 KShmem* kshmem_new(u64 size, const char* name);
 u8* kshmem_ptr(KShmem* s);
@@ -14,6 +15,13 @@ static u64 g_samp;
 static u32 g_style_supported=0x7F;
 static KEvent* g_style_ev[10];
 static void no1_setup(void);
+void hid_set_single(int on);
+/* single Joy-Con mode: motion minigames (Super Mario Party Jamboree's Tilt-a-Golf, Hammer It Home...) ask for one
+   Joy-Con through the controller applet and won't start on a Pro Controller. In that mode No1 is a right Joy-Con
+   held on its own, and its motion sensor follows the right stick (IJKL keys, or the mouse in mouse mode): the stick
+   tilts it up to about 60 degrees, the right stick button shakes it */
+static int g_single; static u32 g_no1_style=1; static u64 g_hold_type=0;   /* NpadJoyHoldType: 0 vertical, 1 horizontal */
+static float g_mo_p, g_mo_r; static u64 g_mo_t;
 
 static void lifo_push(u8* lifo, u32 esize, const void* state, u32 ssize, u64 samp){
   /* lifo header: unused, buffer_count, tail, count. entries: {u64 sampling_number; state}. the entry's sampling
@@ -67,16 +75,50 @@ void hid_update(void){
   u8 z[0x28]; memset(z,0,sizeof z); memcpy(z,&g_samp,8);
   for(int i=1;i<10;i++){ if(i==8) continue; u8* e=b+HO_HidSharedMemory_npad+i*HS_HidNpadSharedMemoryEntry;
     lifo_push(e+HO_HidNpadInternalState_full_key_lifo,HS_HidNpadCommonStateAtomicStorage,z,0x28,g_samp); }
+  if(g_no1_style&((1u<<3)|(1u<<4))){ /* single Joy-Con: its own button LIFO */
+    int right=(g_no1_style>>4)&1; u8 sj[0x28]; memcpy(sj,st,sizeof sj); i32 z4[4]={0,0,0,0};
+    i32 x=g_pad.lx, y=g_pad.ly; u64 jb=btn&~(0xFull|(0xFull<<12)|(0xFFull<<16));
+    /* one Joy-Con has a single stick and a right one no d-pad: the pad's d-pad (arrow keys) moves the stick */
+    if(!x && !y){ if(btn&(1ull<<12)) x=-32767; if(btn&(1ull<<14)) x=32767; if(btn&(1ull<<13)) y=32767; if(btn&(1ull<<15)) y=-32767; }
+    /* the game reads the Joy-Con's own buttons. Held sideways (horizontal hold, the menus), a right Joy-Con's
+       X is on the right: the pad's A presses X, B presses A, Y presses B, X presses Y, and the stick turns with it.
+       Held upright (vertical hold) the buttons are where they are */
+    if(g_hold_type==1 && right){ if(btn&1) jb|=1ull<<2; if(btn&2) jb|=1ull<<0; if(btn&8) jb|=1ull<<1; if(btn&4) jb|=1ull<<3; i32 t=x; x=-y; y=t; }
+    else if(g_hold_type==1){ /* left Joy-Con sideways: its d-pad buttons are the face buttons */
+      if(btn&1) jb|=1ull<<15; if(btn&2) jb|=1ull<<12; if(btn&8) jb|=1ull<<13; if(btn&4) jb|=1ull<<14; i32 t=x; x=y; y=-t; }
+    else jb|=btn&0xF;
+    int sb0= right? 20 : 16; if(x<-16000) jb|=1ull<<sb0; if(y>16000) jb|=1ull<<(sb0+1); if(x>16000) jb|=1ull<<(sb0+2); if(y<-16000) jb|=1ull<<(sb0+3);
+    /* held on its own, the Joy-Con's side buttons SL/SR are its L/R: the pad's L/R press them */
+    int sb= right? 26 : 24; if(btn&(1ull<<6)) jb|=1ull<<sb; if(btn&(1ull<<7)) jb|=1ull<<(sb+1);
+    memcpy(sj+HO_HidNpadCommonState_buttons,&jb,8);
+    if(right){ z4[2]=x; z4[3]=y; } else { z4[0]=x; z4[1]=y; }
+    memcpy(sj+HO_HidNpadCommonState_analog_stick_l,z4,16);
+    { u32 at= right? 1u|(1u<<4) : 1u|(1u<<2); memcpy(sj+HO_HidNpadCommonState_attributes,&at,4); }   /* IsConnected + IsRightConnected / IsLeftConnected */
+    lifo_push(e0+(right? HO_HidNpadInternalState_joy_right_lifo : HO_HidNpadInternalState_joy_left_lifo),HS_HidNpadCommonStateAtomicStorage,sj,0x28,g_samp); }
   /* six-axis: at rest, gravity down */
   u8 six[HS_HidSixAxisSensorState]; memset(six,0,sizeof six);
-  memcpy(six,&g_samp,8); memcpy(six+8,&g_samp,8);
+  { u64 dtn=16666667ull; memcpy(six,&dtn,8); } memcpy(six+8,&g_samp,8);   /* delta time (ns), sampling number */
   float acc[3]={0,0,-1}; memcpy(six+HO_HidSixAxisSensorState_acceleration,acc,12);
   float dir[9]={1,0,0, 0,1,0, 0,0,1}; memcpy(six+HO_HidSixAxisSensorState_direction,dir,36);
   u32 sattr=1; memcpy(six+HO_HidSixAxisSensorState_attributes,&sattr,4);
   lifo_push(e0+HO_HidNpadInternalState_full_key_six_axis_sensor_lifo,HS_HidSixAxisSensorStateAtomicStorage,six,sizeof six,g_samp);
   lifo_push(e0+HO_HidNpadInternalState_joy_dual_left_six_axis_sensor_lifo,HS_HidSixAxisSensorStateAtomicStorage,six,sizeof six,g_samp);
   lifo_push(e0+HO_HidNpadInternalState_joy_dual_right_six_axis_sensor_lifo,HS_HidSixAxisSensorStateAtomicStorage,six,sizeof six,g_samp);
-  lifo_push(eh+HO_HidNpadInternalState_handheld_six_axis_sensor_lifo,HS_HidSixAxisSensorStateAtomicStorage,six,sizeof six,g_samp);
+  if(!(g_no1_style&((1u<<3)|(1u<<4)))) lifo_push(eh+HO_HidNpadInternalState_handheld_six_axis_sensor_lifo,HS_HidSixAxisSensorStateAtomicStorage,six,sizeof six,g_samp);   /* one entry per sample: single mode pushes the moving one below */
+  if(g_no1_style&((1u<<3)|(1u<<4))){
+    u64 now=plat_ns(); float dt= g_mo_t? (float)((double)(now-g_mo_t)/1e9) : 1.f/60.f; g_mo_t=now; if(dt<1e-4f) dt=1e-4f; if(dt>.1f) dt=.1f;
+    float tp=-(float)g_pad.ry/32767.f*1.05f, tr=(float)g_pad.rx/32767.f*1.05f, k=1.f-expf(-dt*14.f);
+    float np=g_mo_p+(tp-g_mo_p)*k, nr=g_mo_r+(tr-g_mo_r)*k, wp=(np-g_mo_p)/dt, wr=(nr-g_mo_r)/dt; g_mo_p=np; g_mo_r=nr;
+    float cp=cosf(np), sp=sinf(np), cr=cosf(nr), sr=sinf(nr);
+    float R[9]={cr,0,sr, sp*sr,cp,-sp*cr, -cp*sr,sp,cp*cr};   /* Rx(pitch) * Ry(roll), rows */
+    float acc2[3]={-R[6],-R[7],-R[8]};   /* gravity (0,0,-1) in the sensor's frame: R^T * g */
+    if(g_pad.buttons&(1ull<<5)){ float ph=(float)((double)now/1e9*2*3.14159265*9.0); acc2[2]+=2.5f*sinf(ph); acc2[0]+=1.2f*cosf(ph); wp+=9.f*cosf(ph); }
+    float w[3]={wp/6.2831853f,wr/6.2831853f,0}, ang[3]={np/6.2831853f,nr/6.2831853f,0};
+    memcpy(six+HO_HidSixAxisSensorState_acceleration,acc2,12); memcpy(six+HO_HidSixAxisSensorState_acceleration+12,w,12);
+    memcpy(six+HO_HidSixAxisSensorState_acceleration+24,ang,12); memcpy(six+HO_HidSixAxisSensorState_direction,R,36);
+    int right=(g_no1_style>>4)&1;
+    lifo_push(e0+(right? HO_HidNpadInternalState_joy_right_six_axis_sensor_lifo : HO_HidNpadInternalState_joy_left_six_axis_sensor_lifo),HS_HidSixAxisSensorStateAtomicStorage,six,sizeof six,g_samp);
+    lifo_push(eh+HO_HidNpadInternalState_handheld_six_axis_sensor_lifo,HS_HidSixAxisSensorStateAtomicStorage,six,sizeof six,g_samp); }
   /* touch */
   u8 ts[HS_HidTouchScreenState]; memset(ts,0,sizeof ts); memcpy(ts,&g_samp,8);
   if(g_pad.touch){ u32 cnt=1; memcpy(ts+HO_HidTouchScreenState_count,&cnt,4);
@@ -98,7 +140,7 @@ static int hid_applet_res(SvcObj* o, IpcCtx* c){
 
 static int hid_vibration_list(SvcObj* o, IpcCtx* c){ (void)o; (void)c; return 0; }   /* IActiveVibrationDeviceList: 0 ActivateVibrationDevice */
 
-static u64 g_hold_type=0, g_comm_mode=0, g_handheld_mode=0;
+static u64 g_comm_mode=0, g_handheld_mode=0;
 
 static int hid_disp(SvcObj* o, IpcCtx* c){
   switch(c->cmd){
@@ -106,7 +148,8 @@ static int hid_disp(SvcObj* o, IpcCtx* c){
     case 40: out_copy_h(c,h_new(&kevent_new("xpad id",0)->o)); return 0;         /* AcquireXpadIdEventHandle */
     case 55: case 59: out64(c,0); return 0;                                        /* GetXpadIds: none */
     case 58: case 62: out_copy_h(c,h_new(&kshmem_new(0x1000,"hid lifo")->o)); return 0;
-    case 68: case 82: out8(c,1); return 0;                                         /* IsSixAxisSensorFusionEnabled / AtRest */
+    case 68: out8(c,1); return 0;                                                  /* IsSixAxisSensorFusionEnabled */
+    case 82: out8(c,g_no1_style&((1u<<3)|(1u<<4))? 0 : 1); return 0;                /* IsSixAxisSensorAtRest: a single Joy-Con is in the player's hand */
     case 69: case 70: case 71: case 72: case 73: case 74: case 75: case 76: case 77: case 78: case 79: case 80: case 81: case 83: case 84: case 85: case 86: case 87: case 88: case 89:
       if(c->cmd==71||c->cmd==73||c->cmd==79||c->cmd==84||c->cmd==86||c->cmd==88){ out32(c,0); out32(c,0); } return 0;
     case 100: g_style_supported=in32(c,0); no1_setup(); return 0;                  /* SetSupportedNpadStyleSet */
@@ -115,7 +158,7 @@ static int hid_disp(SvcObj* o, IpcCtx* c){
       if(!g_style_ev[i]){ g_style_ev[i]=kevent_new("npad style",0); kobj_ref(&g_style_ev[i]->o); kevent_signal(g_style_ev[i]); }
       out_copy_h(c,h_new(&g_style_ev[i]->o)); return 0; }
     case 108: { u32 id=in32(c,0); u64 led= id<8? (1ull<<id) : 0; out64(c,led); return 0; }   /* GetPlayerLedPattern */
-    case 120: g_hold_type=in64(c,8); return 0;
+    case 120: g_hold_type=in64(c,8); { static int said; if(said<8){ said++; LOG("hid: Joy-Con hold type %s\n",g_hold_type? "horizontal" : "vertical"); } } return 0;
     case 121: out64(c,g_hold_type); return 0;                                      /* GetNpadJoyHoldType */
     case 127: g_handheld_mode=in64(c,8); return 0;
     case 128: out64(c,g_handheld_mode); return 0;                                  /* GetNpadHandheldActivationMode */
@@ -130,7 +173,9 @@ static int hid_disp(SvcObj* o, IpcCtx* c){
     case 1000: g_comm_mode=in64(c,8); return 0;
     case 1001: out64(c,g_comm_mode); return 0;
     case 1003: out8(c,0); return 0;
-    case 102: case 103: case 104: case 107: case 109: case 122: case 123: case 124: case 125: case 126: case 130: case 131: case 132:
+    case 122: case 123: if(in32(c,0)==0) hid_set_single(1); return 0;             /* SetNpadJoyAssignmentModeSingle(ByDefault) */
+    case 124: if(in32(c,0)==0) hid_set_single(0); return 0;                         /* SetNpadJoyAssignmentModeDual */
+    case 102: case 103: case 104: case 107: case 109: case 125: case 126: case 130: case 131: case 132:
     case 201: case 204: case 206: case 207: case 209: case 210: case 212:
     case 1002: case 1004:
     case 300: case 301: case 302: case 303: case 304: case 305: case 306: case 307: case 308: case 309: case 310: case 311: case 312: case 313: case 314: case 315: case 316: case 317:
@@ -149,12 +194,24 @@ static SvcObj* new_hidsys(void){ return svcobj_new("hid:sys",hidsys_disp,0); }
    joycons. two bits at once (FullKey|JoyDual) never happens on hw and nn::hid::GetVibrationDeviceHandles aborts on
    it (kirby and the forgotten land at boot) */
 static void no1_setup(void){ if(!g_hid_shm) return; u8* b=kshmem_ptr(g_hid_shm);
-  if((g_style_supported&1) || !(g_style_supported&(1u<<2))) npad_setup(b,0,1u<<0,1u<<0);   /* FullKey, device: Pro Controller */
-  else npad_setup(b,0,1u<<2,(1u<<4)|(1u<<5));                                               /* JoyDual, devices: left + right Joy-Con */
+  static int off=-1; if(off<0) off=getenv("SWR_NO_SINGLE_JOYCON")!=NULL;
+  u32 sj=g_style_supported&((1u<<3)|(1u<<4)), only=sj && !(g_style_supported&7u);
+  if(!off && sj && (g_single || only)){ u32 st= (sj>>4)&1? 1u<<4 : 1u<<3;   /* JoyRight if allowed, else JoyLeft */
+    npad_setup(b,0,st,st==(1u<<4)? 1u<<5 : 1u<<4); g_no1_style=st;
+    u32 single=1; memcpy(b+HO_HidSharedMemory_npad+HO_HidNpadInternalState_joy_assignment_mode,&single,4); }
+  else if((g_style_supported&1) || !(g_style_supported&(1u<<2))){ npad_setup(b,0,1u<<0,1u<<0); g_no1_style=1; }   /* FullKey, device: Pro Controller */
+  else { npad_setup(b,0,1u<<2,(1u<<4)|(1u<<5)); g_no1_style=1u<<2; }                                              /* JoyDual, devices: left + right Joy-Con */
   if(g_style_ev[0]) kevent_signal(g_style_ev[0]); }
+
+int hid_get_single(void){ return g_single; }
+void hid_set_single(int on){
+  if(g_single==on) return; g_single=on;
+  LOG("hid: controller 1 %s (supported styles %x)\n",on? "set to one Joy-Con: motion follows the right stick, right stick button shakes" : "back to a full controller",g_style_supported);
+  no1_setup(); }
 
 void svc_hid_init(void){
   g_hid_shm=kshmem_new(0x40000,"hid"); kobj_ref(&g_hid_shm->o);
+  { const char* e=getenv("SWR_SINGLE_JOYCON"); if(e && *e=='1') g_single=1; }   /* start as one Joy-Con (motion) */
   u8* b=kshmem_ptr(g_hid_shm);
   no1_setup();
   npad_setup(b,8,1u<<1,(1u<<2)|(1u<<3));              /* Handheld */
