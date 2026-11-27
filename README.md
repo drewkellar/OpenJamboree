@@ -17,13 +17,14 @@ Built on **SwitchRecomp by MZ Labs** (AGPL v3), with fixes for this game. See [`
 | Boot, intro movie, title screen | works |
 | Saves | created and loaded; intro skippable once a save exists |
 | Menus, Party Plaza hub, tutorial, balloon tour, mode list | works |
-| Boards | Mega Wiggler's Tree Party plays (dice, HUD, CPU turns), 55-60 FPS |
-| Minigames | work (played through to the results and back to the board) |
+| Boards | all seven load and play their first turn; Mega Wiggler's Tree Party plays further (minigame and back, autosave), 55-60 FPS. Full 10-turn parties not played through yet |
+| Minigames | 107 of 112 played to the results in Minigame Bay (the other 5 are locked on the test save) |
+| Motion minigames | play as one Joy-Con: press F6, then the right stick (IJKL) tilts and O shakes |
 | Dialogs, text, dice counters, character previews | render (they were clipped away before) |
 | Board spaces | render along the paths |
 | Minigame select | roulette over the board (bonus, 1 vs 3, 2 vs 2 and 4-player rounds seen) |
 | Button prompts | follow the pad: Xbox labels by default, Switch positions with `pad_buttons=1` |
-| Known issues | character select can stutter when switching quickly; occasional small lag spikes; more minigames and boards still to test (see the playtest log in the port notes) |
+| Known issues | first entry to some boards stalls for a few seconds; occasional small lag spikes; full parties and board events still to test (see the playtest log in the port notes) |
 
 Full notes, every bug with its cause and fix, and the plan: [`docs/JAMBOREE_PORT.md`](docs/JAMBOREE_PORT.md).
 
@@ -43,7 +44,8 @@ Full notes, every bug with its cause and fix, and the plan: [`docs/JAMBOREE_PORT
 3. Start `games/<Game>.exe`. If it can't find the dump it asks for the folder and checks that it's the right game.
 
 Saves go to `games/<Game>_data/save/`. Controls and options: [`README.txt`](README.txt) (F1 in game shows the keys).
-Keyboard: arrows = D-pad, WASD = left stick, X/Space = A, Z = B, C = X, V = Y, Q = L, E = R, Enter = +, Backspace = -.
+Keyboard: arrows = D-pad, WASD = left stick, IJKL = right stick, U/O = stick clicks, X/Space = A, Z = B, C = X, V = Y,
+Q = L, E = R, Enter = +, Backspace = -. F6 switches player 1 between a Pro Controller and one Joy-Con (motion games).
 Hold Esc for 1.5 s to quit (a tap does nothing).
 
 ## Never commit or share

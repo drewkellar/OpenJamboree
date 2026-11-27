@@ -32,6 +32,25 @@ These rules apply to every AI coding agent and person working in this repo (Clau
   for commits, a footer for PR descriptions), add them.
 - Never push the local branch `old-local-history`: it holds pre-publication history, including game logs.
 
+## Documentation (required, every change)
+
+Docs are updated in the same commit (or at least the same PR) as the change they describe, never "later". Before
+every commit, check each of these and update what the change affects:
+- `docs/JAMBOREE_PORT.md`:
+  - section 1 **Status** table and its "Last updated" date: any area whose state changed;
+  - section 2 **Bugs**: each bug fixed or investigated, with its evidence, cause and fix (new number for a new bug);
+  - sections 3/4 **Features** and **Diagnostic switches**: every new key, `.ini` option or `SWR_*` variable;
+  - section 7 **Playtest log** and **Owner manual checks**: everything seen in play, fixed or not, and the owner's
+    verdicts when they come back;
+  - section 8 **Next steps**: remove what is done, add what was found; sections 9/10 when coverage changes.
+- `CHANGELOG.txt`, OpenJamboree section at the top: one user-facing line per change.
+- `README.md` status table and controls, and `README.txt` controls/options, when what a player sees or presses changes.
+- `DEVELOPER_GUIDE.md` / `REGRESSION.md` when a workflow, tool or regression check changes.
+- This file when a rule changes.
+
+A PR description lists which docs it updated. At the end of each request, report what the docs now say has
+changed, so the owner can see they're current.
+
 ## What must never be committed (public repo)
 
 `.gitignore` blocks these; still check `git status` and the staged file list before every commit:
