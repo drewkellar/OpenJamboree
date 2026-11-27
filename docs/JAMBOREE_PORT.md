@@ -503,6 +503,9 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 | M5 | Bowser Space menu | the highlighted row ("Lose 15 coins") keeps its text | pending |
 | M6 | Finale | "Congratulations!" shows all letters once its animation ends | pending |
 | M7 | Minigame transitions | the iris closes to white and stays white about 1.1 s while the minigame loads; after practice a 0.4 s fade through white | pending |
+| M8 | Jr.'s Jauntlet | the arena floor has horizontal scanlines over its pictures (screen effect?) | pending |
+| M9 | Rewards screen | the area below the header is plain black | pending |
+| M10 | Motion minigames | with F6 (one Joy-Con) the right stick tilts and O shakes; do the 25 motion games feel playable? | pending |
 
 ## 8. Next steps
 1. Board: a waiting player (Mario, on a space further down the path) looked see-through. Check whether that's the
@@ -551,3 +554,27 @@ resuming and exiting Mega Wiggler's Tree Party in the same process. The largest 
 entry were 545 ms and 573 ms, respectively. Texture work on the GPU thread accounted for 267 ms and 298 ms of
 those frames. The transition replay ran for about 41 seconds after opening the Galleria archive and logged no
 pause over 1.5 s. The original 7.2 s stall remains open.
+
+## 10. Minigame coverage
+
+Minigame Bay, Free Play, "All" list, 2026-11-26/27, background mode with CPU opponents on Easy and the test
+player pressing A only when the screen waits. Each game ran from the practice screen to the results menu, with a
+capture about every 1.3 s (local only, `_work/save-library/evidence/mg/NNN`). Index = position in the 14 x 8 list.
+
+- **Played to the results: 107 of 112.** The other 5 (indices 73-77) are still locked ("?") on the test save.
+- **Pro Controller, 82 games:** every one reached its results menu (or, for 1-player challenges, its score screen)
+  with nothing missing or broken in the captures. Luigi Rescue Operation (64) hit the script's 5.5 minute limit:
+  it's a room-by-room puzzle the idle test player never solves, and it rendered normally throughout.
+- **Motion minigames, 25 games, played as one Joy-Con (F6, bug 19):** Tilt-a-Golf, Night Lights, Hammer It Home,
+  Twist and Sort, Shuttle Scuttle, Tiny Triathlon, Pickax Dash, Arch Rivals, Income Stream, Dorrie Pedal-Paddle,
+  Robo Arm Wrestle, Coin Corral, Fast Fishing, Roll with It, Rosalina's Radical Race, and the ten cooking games
+  (Soup Troupe, Parfait the Course, Whisk Cream, Spread 'n Butter, Short-Stack Chef, Burger Builders, Footlong
+  Frenzy, Copycat Curry, En Barb!, On the Beet). All started, ran and finished. Their motion input (the right
+  stick) was checked by hand only in Tilt-a-Golf.
+- Bugs found and fixed on the way: the sea at Minigame Bay (bug 18), motion minigames (bug 19), and a game-wide
+  freeze when the audio device stalled, hit about 86 minutes into the session (bug 20).
+
+For the owner to compare with the console (not known to be wrong):
+- Jr.'s Jauntlet (72): the arena floor shows horizontal scanlines over its pictures. It reads like a screen effect.
+- Hot Cross Blocks (6): with four CPUs one round lasted 5+ minutes.
+- The Rewards / achievement screen: plain black below its header.
