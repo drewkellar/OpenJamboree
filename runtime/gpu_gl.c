@@ -3389,7 +3389,7 @@ extern volatile int g_rec_toggle; extern void backend_rec_state(int on);
 extern int rec_open(const wchar_t* path, int w, int h, int fps); extern void rec_frame(const u8* nv12, i64 t100, i64 dur100); extern void rec_close(void); extern void rec_audio_start(u64);
 extern int rec_failed(void);
 #define REC_N 3
-extern volatile int g_vt_on; extern int g_opt_rec_fps; extern u64 guest_ns(void); static u64 g_rec_n, g_rec_vt0, g_rec_lastts;
+extern int g_opt_rec_fps; extern u64 guest_ns(void); static u64 g_rec_n, g_rec_vt0, g_rec_lastts;
 static int g_rec_on, g_rec_w, g_rec_h; static u64 g_rec_t0, g_rec_last; static u32 g_rec_k; static u64 g_rec_out, g_rec_base; static int g_rec_have;
 static GLuint g_rec_fbo[2], g_rec_tex[2], g_rec_prog[2], g_rec_pbo[REC_N]; static GLsync g_rec_sync[REC_N]; static u64 g_rec_ts[REC_N];
 static GLint g_rec_xf[2];
@@ -3424,8 +3424,9 @@ static void rec_start(void){
   glGenBuffers(REC_N,g_rec_pbo);
   for(int i=0;i<REC_N;i++){ glBindBuffer(GL_PIXEL_PACK_BUFFER,g_rec_pbo[i]); glBufferData(GL_PIXEL_PACK_BUFFER,(GLsizeiptr)g_rec_w*g_rec_h*3/2,NULL,GL_STREAM_READ); g_rec_sync[i]=0; }
   glBindBuffer(GL_PIXEL_PACK_BUFFER,0); glBindFramebuffer(GL_FRAMEBUFFER,0);
-  g_rec_t0=plat_ns(); g_rec_last=0; g_rec_k=0; g_rec_on=1; g_rec_n=0; g_rec_out=0; g_rec_base=0; g_rec_have=0; backend_rec_state(1);
-  { extern void vt_set(int); extern volatile int g_vt_on; extern volatile int g_rec_active; g_rec_active=1; vt_set(1); g_rec_vt0=guest_ns(); rec_audio_start(g_rec_vt0); g_rec_lastts=0; if(g_vt_on) LOG("recorder: smooth mode (the game runs in slow motion if the PC can't keep up; the video comes out at a steady %d FPS)\n",g_opt_rec_fps); } }
+  g_rec_t0=plat_ns(); g_rec_last=0; g_rec_k=0; g_rec_on=1; g_rec_n=0; g_rec_out=0; g_rec_base=0; g_rec_have=0;
+  { swr_record_clock(1); g_rec_vt0=guest_ns(); rec_audio_start(g_rec_vt0); g_rec_lastts=0; if(swr_smooth_clock()) LOG("recorder: smooth mode (the game runs in slow motion if the PC can't keep up; the video comes out at a steady %d FPS)\n",g_opt_rec_fps); }
+  backend_rec_state(1); }
 
 /* PBO from REC_N-1 frames ago: hand it over if it's ready, if not skip it (never wait) */
 static void rec_drain(int all){
@@ -3453,7 +3454,7 @@ static void rec_drain(int all){
     } else { WARN("recorder: readback mapping failed; frame retained for retry\n"); glBindBuffer(GL_PIXEL_PACK_BUFFER,0); return; }
     glBindBuffer(GL_PIXEL_PACK_BUFFER,0); } }
 
-static void rec_stop(void){ if(!g_rec_on) return; rec_drain(1); rec_close(); rec_gl_free(); g_rec_on=0; backend_rec_state(0); { extern void vt_set(int); extern volatile int g_rec_active; vt_set(0); g_rec_active=0; } }
+static void rec_stop(void){ if(!g_rec_on) return; rec_drain(1); rec_close(); rec_gl_free(); g_rec_on=0; backend_rec_state(0); swr_record_clock(0); }
 
 volatile int g_rec_exit;   /* at exit: 1 = finalize, 2 = done */
 void gpu_gl_rec_finish(void){ if(!g_rec_on) return; g_rec_exit=1; u64 t0=plat_ns(); while(g_rec_exit!=2 && plat_ns()-t0<30000000000ull) plat_sleep_ns(10000000); }
@@ -3464,10 +3465,10 @@ static void rec_capture(GLuint tex, const float* xf, int tw, int th){
   if(!g_rec_on) return;
   /* a frame queued before F7 was pressed belongs to the old timeline */
   if(g_present_guest_ns && g_present_guest_ns<g_rec_vt0) return;
-  u64 now=plat_ns(); if(!g_vt_on && g_rec_last && now-g_rec_last<15500000ull) return;   /* max 60/s (smooth mode: every real frame) */
+  u64 now=plat_ns(); if(!swr_smooth_clock() && g_rec_last && now-g_rec_last<15500000ull) return;   /* max 60/s (smooth mode: every real frame) */
   g_rec_last=now;
   rec_drain(0);
-  u32 i=g_rec_k%REC_N; if(g_rec_sync[i]){ if(!g_vt_on) return; rec_drain(1); if(g_rec_sync[i]) return; }   /* never write over a readback that's still pending */
+  u32 i=g_rec_k%REC_N; if(g_rec_sync[i]){ if(!swr_smooth_clock()) return; rec_drain(1); if(g_rec_sync[i]) return; }   /* never write over a readback that's still pending */
   int dw=g_rec_w, dh=g_rec_w*th/(tw?tw:1); if(dh>g_rec_h){ dh=g_rec_h; dw=g_rec_h*tw/(th?th:1); } dw&=~1; dh&=~1;
   int ox=((g_rec_w-dw)/2)&~1, oy=((g_rec_h-dh)/2)&~1;
   glDisable(GL_SCISSOR_TEST); glDisable(GL_BLEND); glDisable(GL_FRAMEBUFFER_SRGB);
@@ -3605,7 +3606,8 @@ static void screen_quad(GLuint tex, const float* xf, int tw, int th){
   rec_capture(tex,xf,tw,th); shot8_capture(tex,xf,tw,th); glUseProgram(g_blit_prog); glBindFramebuffer(GL_FRAMEBUFFER,0); glBindTexture(GL_TEXTURE_2D,tex);
   glTexParameteri(GL_TEXTURE_2D,0x8A48,0x8A49); }   /* restore DECODE for when the game samples it */
 
-static void screen_swap(void){ TM(TM_SWAP,backend_gl_swap()); state_dirty(); g_pipe_on=0; mb_reset(); }
+static u64 g_window_swaps;
+static void screen_swap(void){ TM(TM_SWAP,backend_gl_swap()); g_window_swaps++; state_dirty(); g_pipe_on=0; mb_reset(); }
 
 /* ============================================================ LSFG frame gen (user's own Lossless.dll) */
 extern int lsfg_init(void); extern int lsfg_ready(void); extern int lsfg_context(u32,u32); extern GLuint lsfg_in_tex(void); extern void lsfg_reset(void); extern int lsfg_process(int, GLuint*);
@@ -3617,7 +3619,10 @@ static const float XF_ID[4]={0,0,1,1};
 
 static void lf_flush(void){ for(int i=0;i<g_lfn;i++){ screen_quad(g_lfq[i].tex,XF_ID,g_lf_W,g_lf_H); screen_swap(); } g_lfn=0; }
 
-static void lsfg_pump(void){ if(!g_lfn) return; u64 now=plat_ns(); int k=0;
+static void lsfg_pump(void){
+  if(!g_lfn) return;
+  if(swr_speed()>1){ g_lfn=0; return; }
+  u64 now=plat_ns(); int k=0;
   while(k<g_lfn && now>=g_lfq[k].t){ screen_quad(g_lfq[k].tex,XF_ID,g_lf_W,g_lf_H); screen_swap(); k++; }
   if(k){ memmove(g_lfq,g_lfq+k,(size_t)(g_lfn-k)*sizeof *g_lfq); g_lfn-=k; } }
 
@@ -3627,7 +3632,7 @@ static int g_blit_rt;   /* shown image is an RT, i.e. scaled by the res scale */
 static int lsfg_frame(GLuint tex, const float* xf, int tw, int th){
   if(!lsfg_ready() || tw<=0 || th<=0) return 0;
 #ifdef _WIN32
-  { extern volatile int g_vt_on; if(g_vt_on){ lf_flush(); g_lf_on=0; return 0; } }   /* smooth recording: only real frames */
+  if(swr_smooth_clock()){ lf_flush(); g_lf_on=0; return 0; }   /* smooth recording: only real frames */
 #endif
   u64 now=plat_ns();
   if(g_lf_last){ u64 d=now-g_lf_last; if(d>250000000ull) d=250000000ull; g_lf_int=(g_lf_int*7+d)/8; }
@@ -3681,14 +3686,26 @@ static int lsfg_frame(GLuint tex, const float* xf, int tw, int th){
   return 1; }
 
 static void blit_to_screen(GLuint tex, int flip, int tw, int th){ state_dirty();
+  static u64 next_display;
+  int fast=swr_speed()>1, show=1;
+  if(fast){
+    /* Skip only the window blit. Guest renders, fences and texture copies still execute. */
+    const u64 period=16666667ull;
+    u64 now=plat_ns();
+    g_lf_on=0;
+    g_lf_last=0;
+    show=now+500000ull>=next_display || g_shot8_req;
+    if(!next_display || now>next_display+period) next_display=now;
+    if(now+500000ull>=next_display) next_display+=period;
+  } else next_display=0;
   /* game-requested crop (e.g. 1280x720 inside a 1920x1080 buffer) */
   float u0=0, v0=0, u1=1, v1=1; { i32 l=g_vi_crop[0], t=g_vi_crop[1], r=g_vi_crop[2], b=g_vi_crop[3];
     if(r>l && b>t && tw>0 && th>0 && r<=tw*4 && b<=th*4){ u0=(float)l/tw; u1=(float)r/tw; v0=(float)t/th; v1=(float)b/th; tw=r-l; th=b-t; } }
   if(g_vi_transform&2){ float x=v0; v0=v1; v1=x; }   /* FLIP_V */
   if(g_vi_transform&1){ float x=u0; u0=u1; u1=x; }   /* FLIP_H */
   float xf[4]; if(flip){ xf[0]=u0; xf[1]=v1; xf[2]=u1-u0; xf[3]=v0-v1; } else { xf[0]=u0; xf[1]=1-v1; xf[2]=u1-u0; xf[3]=v1-v0; }
-  if(lsfg_frame(tex,xf,tw,th)) return;
-  screen_quad(tex,xf,tw,th); screen_swap();
+  if(!fast && lsfg_frame(tex,xf,tw,th)) return;
+  if(show){ screen_quad(tex,xf,tw,th); screen_swap(); }
   g_last_present_tex=tex; g_last_flip=flip; g_last_w=tw; g_last_h=th;
 }
 
@@ -4122,10 +4139,11 @@ static void gpu_thread(void* arg){ t_gpu_thread=1;
           LOG("gpu memory: buffer cache %llu buffers %llu MB, textures %llu (~%llu MB), render targets %llu (~%llu MB at x1)\n",(unsigned long long)g_vbc_n,(unsigned long long)(g_vbc_bytes>>20),
             (unsigned long long)tn,(unsigned long long)(tb>>20),(unsigned long long)rn,(unsigned long long)(rb>>20)); }
         static u64 last_frames_pf;
-        { static u64 last_t, last_busy, last_frames; u64 dt=now-last_t; if(last_t && dt){
-            LOG("performance: %.1f FPS, GPU thread busy %d%% (near 100%% = the bottleneck is the graphics card; low = it is the CPU running the game)\n",
-              (double)(g_frame-last_frames)*1e9/(double)dt,(int)((g_gpu_busy-last_busy)*100/dt)); }
-          last_t=now; last_busy=g_gpu_busy; last_frames=g_frame; }
+        { static u64 last_t, last_busy, last_frames, last_swaps; u64 dt=now-last_t; if(last_t && dt){
+            LOG("performance: %.1f FPS, GPU thread busy %d%%, %.1f window swaps/s\n",
+              (double)(g_frame-last_frames)*1e9/(double)dt,(int)((g_gpu_busy-last_busy)*100/dt),
+              (double)(g_window_swaps-last_swaps)*1e9/(double)dt); }
+          last_t=now; last_busy=g_gpu_busy; last_frames=g_frame; last_swaps=g_window_swaps; }
           { /* performance.txt: short summary to figure out problems on someone else's pc */
             static u64 l_now, l_pcpu, l_gcpu, l_cn, l_cns, l_fr2, l_skip, l_dr2; FILE* rf=g_rf; u64 t_start=g_rf_t0; if(!rf){ rf=g_rf=fopen("performance.txt","w"); t_start=g_rf_t0=now; if(rf){ extern int plat_ncpu(void);
                 fprintf(rf,"SwitchRecomp - performance (each line = last few seconds). CPU: %d cores. GPU: %s\n",plat_ncpu(),(const char*)glGetString(GL_RENDERER));

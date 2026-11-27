@@ -12,7 +12,7 @@ default, not saved to the `.ini`, shown in the window title.
   ran *slower* than 1x (FPS 60 → 45 → 25), because vsync stays at 60 Hz real and kernel waits use real time.
 - GPU thread is ~45% busy at 60 FPS, so 2x has headroom; 4x is unproven (guest CPU cost per step unknown).
 
-## Design
+## Original design
 
 Speed factor `g_speed` ∈ {1,2,4}:
 1. **Clock:** run the guest clock at `g_speed` (fixed rate; reuse `vt_rebase` without the smooth-recording
@@ -32,6 +32,21 @@ Speed factor `g_speed` ∈ {1,2,4}:
    the game). Reset resampler state on speed change.
 7. **Key/UI:** `backend_win32.c` WM_KEYDOWN F9 (and `backend_x11.c`), title text `Speed: 2x`, F1 help row,
    `SWR_SPEED=N` env for tests.
+
+## Implementation notes (2026-11-27)
+
+- The Switch 2 VI2 display event also has its own real-time cadence. The runtime now scales both display event
+  paths. Timed kernel waits use a separate deadline clock so they follow speed changes without inheriting the F7
+  recording clock. The host frontend keeps its maintenance cadence on wall time.
+- The OpenGL path paces window blits and swaps while retaining guest rendering, texture copies and fences. The
+  existing experimental draw-skip modes can omit render target and storage writes, including work that affects
+  later frames. The performance log now reports guest presents and window swaps separately.
+- The baseline opening and the fixed 2x and 4x runs completed. Heavy shots stayed around 42-50 guest presents/s.
+  An isolated 2x run at half render resolution showed a similar rate. The existing experimental `fps_target=20`
+  reached roughly 61-67 guest presents/s, with about 20-22 window swaps/s. Neither experiment reached 2x.
+- Lighter scenes reached 81 guest presents/s at the 2x setting and 107 at the 4x setting, with 60 window swaps/s.
+  The 4x Raceway replay reached CPU board actions and played Cold Front through to the coin awards and turn 3.
+  Compare matched runs before attributing any speed gain to the board simulation itself.
 
 ## Verify
 

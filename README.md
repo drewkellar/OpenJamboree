@@ -19,6 +19,7 @@ Built on **SwitchRecomp by MZ Labs** (AGPL v3), with fixes for this game. See [`
 | Menus, Party Plaza hub, tutorial, balloon tour, mode list | works |
 | Boards | all seven load and play their first turn; Mega Wiggler's Tree Party plays further (minigame and back, autosave), 55-60 FPS. Full 10-turn parties not played through yet |
 | Minigames | 107 of 112 played to the results in Minigame Bay (the other 5 are locked on the test save) |
+| Fast-forward | F9 cycles 1x, 2x and 4x on OpenGL. Actual speed depends on the scene and hardware |
 | Motion minigames | play as one Joy-Con: press F6, then the right stick (IJKL) tilts and O shakes |
 | Dialogs, text, dice counters, character previews | render (they were clipped away before) |
 | Board spaces | render along the paths |
@@ -46,6 +47,7 @@ Full notes, every bug with its cause and fix, and the plan: [`docs/JAMBOREE_PORT
 Saves go to `games/<Game>_data/save/`. Controls and options: [`README.txt`](README.txt) (F1 in game shows the keys).
 Keyboard: arrows = D-pad, WASD = left stick, IJKL = right stick, U/O = stick clicks, X/Space = A, Z = B, C = X, V = Y,
 Q = L, E = R, Enter = +, Backspace = -. F6 switches player 1 between a Pro Controller and one Joy-Con (motion games).
+F9 changes the play speed on OpenGL. The window title shows the target, and F7 recording returns it to 1x.
 Hold Esc for 1.5 s to quit (a tap does nothing).
 
 ## Never commit or share

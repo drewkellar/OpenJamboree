@@ -5,7 +5,7 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 
 ## 1. Status
 
-Last updated 2026-11-27 (after PR #8). Keep this table current with every change (see `AGENTS.md`).
+Last updated 2026-11-27 (fast-forward development). Keep this table current with every change (see `AGENTS.md`).
 
 | Area | State |
 | --- | --- |
@@ -19,6 +19,7 @@ Last updated 2026-11-27 (after PR #8). Keep this table current with every change
 | Menus | player count, character select (3D preview), Party Plaza hub (walk, talk, Toad's tutorial), balloon tour and mode list (`menu01.nro`), party rules, opponent/board setup |
 | Boards | all seven load and play their first turn (section 9). Mega Wiggler's Tree Party (`bd01.nro`) plays further: intro, dice/items/board menu, HUD, CPU turns, minigame and back, autosave, 55-60 FPS. Full 10-turn parties not played through yet |
 | Minigames | **107 of 112** played from practice to the results in Minigame Bay (section 10); the other 5 are locked on the test save. Sandwiched also played inside a party, back to the board |
+| Fast-forward | F9 cycles 1x, 2x and 4x on OpenGL. Heavy scenes in the opening fell short of the targets |
 | Motion minigames (25) | **fixed** (bug 19): play as one Joy-Con with F6; right stick tilts, O shakes. Feel still to be checked by the owner (M10) |
 | New party | works: party rules tutorial (scroll with the D-pad), board and settings, turn order, first turn, autosave |
 | Pause menu on the board | works (Resume, exit to the balloon or plaza with its confirmation) |
@@ -37,7 +38,7 @@ Last updated 2026-11-27 (after PR #8). Keep this table current with every change
 | Minigame select background | worked around (bug 12): the board shows behind the list instead of black; the real cause is open |
 | Esc | no longer quits on a tap: hold it 1.5 s (the title bar says so) |
 | Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); a stalled output device no longer freezes the game (bug 20). Not checked by ear |
-| Owner checks | M1-M10 pending against the console (section 7) |
+| Owner checks | M1-M11 pending (section 7) |
 
 Fastest path to a board with a save (keys): + skips the intro, Q+E at the title, A through the plaza, then in the
 balloon pick Mario Party; ~2.5 min from launch. With `_work/run.ps1`: `-Keys` = `12:0x0D@500,22:0x51+0x45@500,
@@ -372,6 +373,11 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   most minigames) the face buttons are mapped to where they sit on a sideways Joy-Con, so A stays A. F1 lists F6 and
   the new **U/O** stick-click keys.
 
+- **F9** cycles the OpenGL fast-forward target between 1x, 2x and 4x. The window title shows the target. The runtime starts at 1x
+  by default. The setting lasts for the session. F7 returns to 1x and locks the speed until recording ends.
+  Faster speeds increase the live audio pitch. Guest rendering still runs on every game frame, while OpenGL
+  window updates are paced at about 60 per second during fast-forward. Heavy scenes can run below the target.
+
 ## 4. Diagnostic switches added
 
 | Env var | Effect |
@@ -399,6 +405,7 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_WATCH_RT=<w>x<h>` | log what happens to RTs of that size: created, parked, revived, cleared (with the clear's registers), dropped, freed; `SWR_WATCH_RT_TRACE=1` traces the frame after a second clear in one frame |
 | `SWR_NO_ICON_SWAP=1` | keep the game's button icon sheets as they are (bug 11) |
 | `SWR_BACKGROUND=1` | background test mode: the window sits past the right edge of all monitors, is never activated, has no taskbar or Alt+Tab entry; sound is silenced (still sent to the device so audio timing is unchanged); the real pad, mouse and keyboard are ignored, only posted keys count. F8 captures and logs work as usual. `run.ps1` sets it unless `-Foreground` |
+| `SWR_SPEED=1`, `SWR_SPEED=2` or `SWR_SPEED=4` | startup fast-forward target on OpenGL, for scripted tests. Invalid values use 1x |
 | `SWR_MUTE=1` | silence only, everything else as normal |
 | `SWR_SHOT8_EVERY=N[@s[,max]]` | an F8 capture every N presented frames, optionally from s seconds after the first frame and up to max captures (default 40): shows frame by frame how long a transition or glitch lasts |
 | `SWR_SHOT8_FLAG=N` | while a file `burst.flag` exists in the game folder, an F8 capture every N presents (a test script creates it when OCR sees the screen it wants) |
@@ -479,6 +486,9 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 | Date | Where | What | State |
 | --- | --- | --- | --- |
+| 2026-11-27 | Windows/OpenGL opening, isolated Minigame Bay save | Background 1x, 2x and 4x runs completed and F8 captures showed some progression gains at the faster settings. Heavy sections stayed around 42-50 guest presents/s across all three targets. A scripted run cycled F9 through all three speeds, captured an F5 trace at 4x, and saved an F7 recording with 0 dropped frames and 0 lost audio packets. | controls and diagnostics verified. Full target progression and audible transitions remain open |
+| 2026-11-27 | Raceway, turn 2 | A 4x-target background replay resumed the board, advanced the Jamboree Buddy tutorial and completed CPU actions without a stall report. Before board entry, a lighter scene reached 107 guest presents/s with 60 window swaps/s. | board CPU turn smoke check passed. Exact turn speed still needs matched runs |
+| 2026-11-27 | Cold Front, inside the Raceway party | The 4x-target replay started the minigame from practice, awarded coins and returned to turn 3. F9 cycled back through all three speeds during the next board turn. | minigame and return to board smoke check passed. Mid-minigame speed changes remain to test |
 | 2026-11-25 | board prompts | four-dot icons showed Switch positions with an Xbox pad | fixed (bug 11) |
 | 2026-11-25 | minigame select | black background instead of the board | worked around (bug 12), cause open |
 | 2026-11-25 | anywhere | a stray Esc closed the game | changed: hold 1.5 s |
@@ -497,7 +507,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 ### Owner manual checks (open)
 
-The owner is checking these by hand against the console. Results go back into the table above.
+The owner is checking these by hand. Results go back into the table above.
 Review images are in `_work/save-library/review-2026-11-26` (local only, not committed).
 
 | # | Check | What to compare | Owner result |
@@ -512,9 +522,10 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 | M8 | Jr.'s Jauntlet | the arena floor has horizontal scanlines over its pictures (screen effect?) | pending |
 | M9 | Rewards screen | the area below the header is plain black | pending |
 | M10 | Motion minigames | with F6 (one Joy-Con) the right stick tilts and O shakes; do the 25 motion games feel playable? | pending |
+| M11 | Fast-forward audio | Check pitch and continuity at 1x, 2x and 4x during play and when switching back to 1x. | pending |
 
 ## 8. Next steps
-1. Owner checks M1-M10 (section 7): fold the results back into the playtest log and fix what differs.
+1. Owner checks M1-M11 (section 7): fold the results back into the playtest log and fix what differs.
 2. First-entry board stalls (2.7-7.2 s, section 9) and small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and
    match frame timestamps to asset loads. For the reproducible board load hitch, investigate the time outside the
    GPU-thread categories before tuning texture work.
@@ -528,7 +539,8 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
 9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, and a release check that
    no file in the package came from the dump. `CHANGELOG.txt` has an OpenJamboree section, kept current per change.
-10. Fast-forward (F9: 1x/2x/4x) for playtesting: plan and findings in `docs/handoff/fast-forward.md`.
+10. Identify the work limiting fast-forward in heavy scenes and measure same-landmark progression on a CPU board
+    turn and in an active minigame. See `docs/handoff/fast-forward.md`.
 
 ## 9. Board coverage
 

@@ -85,8 +85,12 @@ notice) that the recompiler and every recompiled game show when they start.
     F1 help   F3 screenshot   F4 FPS limit 60 / unlimited   F5 diagnostic trace
     F6 player 1: Pro Controller / one Joy-Con (motion minigames: right stick
        tilts, O shakes; saved as single_joycon= in the .ini)
-    F7 record .mp4 video   F8 full resolution PNG   F11 or Alt+Enter fullscreen
-    Hold Esc (1.5 s) to quit
+    F7 record .mp4 video   F8 full resolution PNG   F9 fast-forward (OpenGL)
+    F11 or Alt+Enter fullscreen   Hold Esc (1.5 s) to quit
+
+  F9 cycles 1x, 2x and 4x. The title shows the target speed. Actual speed
+  depends on the scene and hardware. Higher speeds raise the live audio pitch.
+  The game starts at 1x by default. F7 returns to 1x and locks the speed during recording.
 
   Options (MyGame.ini, rewritten on every start with all the available keys):
     docked=1               TV mode (1080p) instead of handheld (720p)

@@ -341,6 +341,13 @@ extern int g_opt_docked, g_opt_lang, g_opt_res, g_opt_fps, g_opt_vsync;
 void hid_update(void);
 void vi_init(void);
 void vi_vsync_tick(void);
+int swr_speed(void);
+int swr_speed_available(void);
+int swr_speed_cycle(void);
+void swr_record_clock(int on);
+int swr_smooth_clock(void);
+u64 swr_wait_clock(void);
+void kernel_speed_changed(void);
 void nv_init(void);
 /* gpu */
 void gpu_init(void);

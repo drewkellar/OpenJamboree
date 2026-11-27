@@ -116,6 +116,18 @@ own menu, not a save state. For each game: does it reach the scene, does it look
 
 Compare against the previous runtime when something looks different: same scene, both screenshots side by side.
 
+### OpenJamboree fast-forward (Windows/OpenGL)
+
+Use an isolated replay of the same save for each run and link the existing dump in place. Run
+`_work/run.ps1 -GameDir <replay>` in its default background mode with `SWR_SPEED` set to 1, 2 and 4 in turn.
+Compare the elapsed time to the same landmarks in each run. In the `performance:` log line, FPS counts
+guest presents and window swaps/s counts host display updates. Startup and shader loading can affect both.
+
+In a separate run, post F9 (`0x78`) at least three times and check that it returns to 1x. Take F5 and F8
+captures at a faster speed. Start F7 recording from fast-forward, press F9 during recording, then stop F7
+and confirm that the game is still at 1x. Exercise CPU board turns and an active minigame at the faster
+settings. Check audible transitions separately because the background runner mutes audio.
+
 ## Level 4: Intel on Windows
 
 Intel's Windows driver is where most freezes come from (driver exclusive mode, the shader helper process).

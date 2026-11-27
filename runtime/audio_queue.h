@@ -17,6 +17,33 @@ typedef struct {
   int primed;
 } SwrAudioQueue;
 
+/* Average consecutive stereo frames on the live output path. Keep any partial group across packets. */
+typedef struct {
+  float sum[2];
+  unsigned count;
+  int speed;
+} SwrAudioDecimator;
+
+static inline unsigned swr_audio_decimate(SwrAudioDecimator* d,const float* in,unsigned frames,int speed,float* out){
+  if(d->speed!=speed){ *d=(SwrAudioDecimator){0}; d->speed=speed; }
+  unsigned written=0;
+  for(unsigned i=0;i<frames;i++){
+    for(unsigned ch=0;ch<2;ch++){
+      float sample=in[i*2+ch];
+      d->sum[ch]+=isfinite(sample)? sample : 0.f;
+    }
+    if(++d->count==(unsigned)speed){
+      for(unsigned ch=0;ch<2;ch++){
+        out[written*2+ch]=d->sum[ch]/(float)speed;
+        d->sum[ch]=0;
+      }
+      written++;
+      d->count=0;
+    }
+  }
+  return written;
+}
+
 static int swr_aq_init(SwrAudioQueue* q,unsigned capacity){
   memset(q,0,sizeof *q); q->pcm=calloc((size_t)capacity*2,sizeof(float));
   q->capacity=q->pcm?capacity:0; q->rate=1; return q->pcm!=NULL;

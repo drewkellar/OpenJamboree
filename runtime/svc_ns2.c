@@ -116,12 +116,26 @@ static void sc_refresh(void){
 static struct { KEvent* ev; u32 id, val; int armed; } g_sps[64];
 static KEvent* sps_ev(u32 s){ s&=63; if(!g_sps[s].ev){ g_sps[s].ev=kevent_new("syncpoint slot",0); kobj_ref(&g_sps[s].ev->o); } return g_sps[s].ev; }
 static void sps_poll(void){ for(int i=0;i<64;i++) if(g_sps[i].armed && (i32)(syncpt_read(g_sps[i].id)-g_sps[i].val)>=0){ g_sps[i].armed=0; kevent_signal(sps_ev(i)); } }
-/* vi2 31/32 events: the display's vsync, every 16.7 ms (the main thread waits on 32 before its first frame) */
+/* vi2 31/32 are display vsync events. The main thread waits on 32 before its first frame. */
 static KEvent* g_vsync[2];
-static void sc_thread(void* a){ (void)a; u64 next=plat_ns()+16666667;
-  for(;;){ plat_sleep_ns(1000000); ns2_lock(); sc_refresh(); sps_poll();
-    if(plat_ns()>=next){ next+=16666667; if(plat_ns()>next) next=plat_ns()+16666667; for(int i=0;i<2;i++) if(g_vsync[i]) kevent_signal(g_vsync[i]); }
-    ns2_unlock(); } }
+static void sc_thread(void* a){ (void)a;
+  int last_speed=swr_speed();
+  u64 next=plat_ns()+16666667ull/(u64)last_speed;
+  for(;;){
+    plat_sleep_ns(1000000);
+    ns2_lock(); sc_refresh(); sps_poll();
+    u64 now=plat_ns();
+    int speed=swr_speed();
+    u64 period=16666667ull/(u64)speed;
+    if(speed!=last_speed){ next=now+period; last_speed=speed; }
+    if(now>=next){
+      next+=period;
+      if(now>next) next=now+period;
+      for(int i=0;i<2;i++) if(g_vsync[i]) kevent_signal(g_vsync[i]);
+    }
+    ns2_unlock();
+  }
+}
 
 static int sync_disp(SvcObj* o, IpcCtx* c){   /* ISyncpointSupervisor */
   switch(c->cmd){

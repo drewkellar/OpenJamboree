@@ -141,6 +141,13 @@ static void ls_launch(void){
 /* window title update for lsfg on/off, posted from the GPU thread */
 static char g_title[256];
 
+static void set_game_title(HWND h, const char* status){
+  char speed[32]="", title[416];
+  if(swr_speed_available()) snprintf(speed,sizeof speed,"  |  Speed: %dx",swr_speed());
+  snprintf(title,sizeof title,"%s%s%s%s",g_title,speed,status? "  |  " : "",status? status : "");
+  SetWindowTextA(h,title);
+}
+
 void backend_lsfg_state(int on, int mult){ if(g_hwnd) PostMessageA(g_hwnd,WM_APP+7,(WPARAM)on,(LPARAM)mult); }
 
 /* F7 recording state in the title bar */
@@ -152,7 +159,7 @@ void backend_rec_state(int on){ if(g_hwnd) PostMessageA(g_hwnd,WM_APP+8,(WPARAM)
    gray page, rows with the value in cyan, cyan frame on the selected row, button hints at the bottom). the options
    get saved in the game's ini */
 #define CW_W 760
-#define CW_H 648
+#define CW_H 668
 #define CW_ROW 46
 #define CW_LIST_Y 84
 #define CW_NOPT 4
@@ -162,7 +169,7 @@ static const char* const cw_keys[][2]={
   {"L  R  ZL  ZR","Q  E  1  3"}, {"+  -","Enter  Backspace"}, {"Stick clicks","U  O"}, {"Controller","Xbox (XInput) pad"}};
 static const char* const cw_fkeys[][2]={
   {"F1","This page"}, {"F3","Screenshot"}, {"F4","FPS limit on/off"}, {"F5","Diagnostic trace"}, {"F6","Pro Controller / one Joy-Con"},
-  {"F7","Record video"}, {"F8","Full resolution capture"}, {"F11","Fullscreen"}, {"Esc","Hold 1.5 s to quit"}};
+  {"F7","Record video"}, {"F8","Full resolution capture"}, {"F9","Fast-forward (OpenGL)"}, {"F11","Fullscreen"}, {"Esc","Hold 1.5 s to quit"}};
 static int cw_sel;
 static HFONT cw_font(int px, int weight){ return CreateFontA(-px,0,0,0,weight,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,"Segoe UI"); }
 static void cw_value(int i, char* o, size_t n){
@@ -279,14 +286,15 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
        would start and stop the recording every frame */
     /* Esc quits only when held (1.5 s): a stray press used to close the game. the title shows the countdown */
     if(w==VK_ESCAPE){
-      if(!(l&(1<<30)) || !g_esc_t0){ g_esc_t0=plat_ns(); char t[300]; snprintf(t,sizeof t,"%s  |  Hold Esc to quit",g_title); SetWindowTextA(h,t); return 0; }
+      if(!(l&(1<<30)) || !g_esc_t0){ g_esc_t0=plat_ns(); set_game_title(h,"Hold Esc to quit"); return 0; }
       if(plat_ns()-g_esc_t0>=1500000000ull){ LOG("window: Esc held, quitting\n"); g_quit=1; }
       return 0; }
-    if((l&(1<<30)) && (w==VK_F1||w==VK_F3||w==VK_F4||w==VK_F5||w==VK_F6||w==VK_F7||w==VK_F8||w==VK_F11)) return 0;
+    if((l&(1<<30)) && (w==VK_F1||w==VK_F3||w==VK_F4||w==VK_F5||w==VK_F6||w==VK_F7||w==VK_F8||w==VK_F9||w==VK_F11)) return 0;
     if(w==VK_F11){ set_fullscreen(!g_fullscreen); return 0; }
     if(w==VK_F1){ show_controls(); return 0; }
     if(w==VK_F3){ g_shot_req=1; return 0; }
     if(w==VK_F7){ g_rec_toggle=1; return 0; }
+    if(w==VK_F9){ if(swr_speed_cycle()) set_game_title(h,NULL); return 0; }
     if(w==VK_F8){ extern volatile int g_shot8_req; g_shot8_req=1; return 0; }
     if(w==VK_F5){ extern void gpu_gl_dump_rts(void); extern void kernel_dump_threads(void); extern __thread FILE* g_log_redirect;
       CreateDirectoryA("captures",NULL); FILE* f=fopen("captures/threads.txt","w");   /* written next to the trace */
@@ -296,10 +304,10 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
                      ("Use one Joy-Con to play motion minigames"): switch here, then answer Yes */
       extern int hid_get_single(void); extern void hid_set_single(int); extern void ini_set(const char*, const char*);
       int on=!hid_get_single(); hid_set_single(on); ini_set("single_joycon",on? "1" : "0");
-      SetWindowTextA(h,on? "Controller: one Joy-Con (motion: right stick tilts, O shakes)" : "Controller: Pro Controller"); return 0; }
-    if(w==VK_F4){ g_opt_fps= g_opt_fps==0? 1 : 0; char t[64]; snprintf(t,sizeof t,"FPS limit: %s",g_opt_fps==0? "unlimited" : "60"); SetWindowTextA(h,t); { extern void ini_set(const char*, const char*); char v[8]; snprintf(v,sizeof v,"%d",g_opt_fps); ini_set("fps_limit",v); } return 0; }
+      set_game_title(h,on? "Controller: one Joy-Con (motion: right stick tilts, O shakes)" : "Controller: Pro Controller"); return 0; }
+    if(w==VK_F4){ g_opt_fps= g_opt_fps==0? 1 : 0; char t[64]; snprintf(t,sizeof t,"FPS limit: %s",g_opt_fps==0? "unlimited" : "60"); set_game_title(h,t); { extern void ini_set(const char*, const char*); char v[8]; snprintf(v,sizeof v,"%d",g_opt_fps); ini_set("fps_limit",v); } return 0; }
     keys_held|=keymap(w); return 0;
-  case WM_SYSKEYUP: case WM_KEYUP: if(w==VK_ESCAPE){ g_esc_t0=0; SetWindowTextA(h,g_title); } keys_held&=~keymap(w); return 0;
+  case WM_SYSKEYUP: case WM_KEYUP: if(w==VK_ESCAPE){ g_esc_t0=0; set_game_title(h,NULL); } keys_held&=~keymap(w); return 0;
   case WM_KILLFOCUS: keys_held=0; ClipCursor(NULL); InterlockedExchange(&g_mouse_dx,0); InterlockedExchange(&g_mouse_dy,0); return 0;
   case WM_INPUT: {
     RAWINPUT raw; UINT size=sizeof raw;
@@ -307,8 +315,8 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
       InterlockedExchangeAdd(&g_mouse_dx,raw.data.mouse.lLastX); InterlockedExchangeAdd(&g_mouse_dy,raw.data.mouse.lLastY);
     }break;
   }
-  case WM_APP+8: { char t[300]; if(w) snprintf(t,sizeof t,"%s  |  RECORDING (F7 to stop)",g_title); else snprintf(t,sizeof t,"%s  |  Video saved in the recordings folder",g_title); SetWindowTextA(h,t); return 0; }
-  case WM_APP+7: { char t[160]; if(w) snprintf(t,sizeof t,"%s  |  LSFG ON x%d (frame generation)",g_title,(int)l); else snprintf(t,sizeof t,"%s  |  LSFG standby",g_title); SetWindowTextA(h,t); return 0; }
+  case WM_APP+8: set_game_title(h,w? "RECORDING (F7 to stop)" : "Video saved in the recordings folder"); return 0;
+  case WM_APP+7: { char t[64]; if(w) snprintf(t,sizeof t,"LSFG ON x%d (frame generation)",(int)l); else snprintf(t,sizeof t,"LSFG standby"); set_game_title(h,t); return 0; }
   case WM_SETCURSOR: if((g_fullscreen || (g_mouse_mode && !g_controls_open && GetForegroundWindow()==h)) && LOWORD(l)==HTCLIENT){ SetCursor(NULL); return TRUE; } break;
   }
   return DefWindowProcA(h,m,w,l);
@@ -334,6 +342,7 @@ static void win_thread(void* arg){ (void)arg;
     SetWindowPos(g_hwnd,HWND_BOTTOM,x,y,0,0,SWP_NOSIZE|SWP_NOACTIVATE);
     LOG("window: background mode (off-screen at %d,%d, no focus, no sound, pad and keyboard ignored)\n",x,y); }
   else g_hwnd=CreateWindowA("SwitchRecompWnd",g_title,WS_OVERLAPPEDWINDOW|WS_VISIBLE,CW_USEDEFAULT,CW_USEDEFAULT,r.right-r.left,r.bottom-r.top,NULL,NULL,hi,NULL);
+  set_game_title(g_hwnd,NULL);
   RAWINPUTDEVICE rid={1,2,0,g_hwnd}; RegisterRawInputDevices(&rid,1,sizeof rid);
   g_hdc=GetDC(g_hwnd);
   PIXELFORMATDESCRIPTOR pfd={sizeof pfd,1,PFD_DRAW_TO_WINDOW|PFD_SUPPORT_OPENGL|PFD_DOUBLEBUFFER,PFD_TYPE_RGBA,32};

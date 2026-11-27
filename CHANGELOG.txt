@@ -3,6 +3,7 @@ OpenJamboree (Super Mario Party Jamboree on Switch2Recomp 0.4.1) - unreleased
 Newest first. Every change adds its line here (see AGENTS.md); details, evidence and causes are in
 docs/JAMBOREE_PORT.md under the bug number.
 
+- Press F9 on OpenGL to cycle the fast-forward target between 1x, 2x and 4x for playtesting.
 - Audio: a sound device that stops taking buffers is reset or reopened instead of freezing the game (bug 20).
 - Motion minigames: F6 makes player 1 one Joy-Con; the right stick tilts it, O shakes it (bug 19).
 - Minigame Bay: the sea no longer shows black stripes; depth-stencil textures are read as stencil when asked (bug 18).
