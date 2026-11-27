@@ -609,8 +609,10 @@ pause over 1.5 s. The original 7.2 s stall remains open.
 ## 10. Minigame coverage
 
 Minigame Bay, Free Play, "All" list, 2026-11-26/27, background mode with CPU opponents on Easy and the test
-player pressing A only when the screen waits. Each game ran from the practice screen to the results menu, with a
-capture about every 1.3 s (local only, `_work/save-library/evidence/mg/NNN`). Index = position in the 14 x 8 list.
+player pressing A only when the screen waits. The sweep captured a frame about every 1.3 s. The local evidence
+at `_work/save-library/evidence/mg/NNN` now keeps representative frames for each tested game and the full
+sequences for Hot Cross Blocks (6), Luigi Rescue Operation (64) and Jr.'s Jauntlet (72).
+Index = position in the 14 x 8 list.
 
 - **Played to the results: 107 of 112.** The other 5 (indices 73-77) are still locked ("?") on the test save.
 - **Pro Controller, 82 games:** every one reached its results menu (or, for 1-player challenges, its score screen)
