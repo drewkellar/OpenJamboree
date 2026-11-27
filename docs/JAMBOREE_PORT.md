@@ -5,7 +5,7 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 
 ## 1. Status
 
-Last updated 2026-11-27 (playtest hotkeys). Keep this table current with every change (see `AGENTS.md`).
+Last updated 2026-11-27 (fast-forward playtest follow-up). Keep this table current with every change (see `AGENTS.md`).
 
 | Area | State |
 | --- | --- |
@@ -19,7 +19,7 @@ Last updated 2026-11-27 (playtest hotkeys). Keep this table current with every c
 | Menus | player count, character select (3D preview), Party Plaza hub (walk, talk, Toad's tutorial), balloon tour and mode list (`menu01.nro`), party rules, opponent/board setup |
 | Boards | all seven load and play their first turn (section 9). Mega Wiggler's Tree Party (`bd01.nro`) plays further: intro, dice/items/board menu, HUD, CPU turns, minigame and back, autosave, 55-60 FPS. Full 10-turn parties not played through yet |
 | Minigames | **107 of 112** played from practice to the results in Minigame Bay (section 10); the other 5 are locked on the test save. Sandwiched also played inside a party, back to the board |
-| Fast-forward | F8 cycles 1x, 2x and 4x on OpenGL. Heavy scenes in the opening fell short of the targets |
+| Fast-forward | F8 cycles 1x, 2x and 4x on the current OpenGL runtime. Heavy scenes in the opening fell short of the targets |
 | Motion minigames (25) | **fixed** (bug 19): play as one Joy-Con with F9; right stick tilts, O shakes. Feel still to be checked by the owner (M10) |
 | New party | works: party rules tutorial (scroll with the D-pad), board and settings, turn order, first turn, autosave |
 | Pause menu on the board | works (Resume, exit to the balloon or plaza with its confirmation) |
@@ -350,6 +350,17 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - Result: `SWR_AUDIO_STALL_AT=50` (pauses the device after 50 s, a stand-in for a dead endpoint) logs "stopped
   taking buffers, reset" 0.3 s later and the game stays at 60 FPS. The old code waits forever at that point.
 
+### Bug 21. The installed runtime still used the old hotkeys (resolved)
+
+- The owner reported that fast-forward did not engage and heard lower-pitched audio after trying the keys.
+  The log identified a November 25 build, recorded screenshots from F8, and showed smooth recording starting
+  during the session. No speed changes were logged.
+- The branch had the new shortcuts, but the prior background tests used rebuilt executables in isolated replay
+  folders. The installed game still launched the older runtime. Its F7 shortcut could start smooth recording,
+  which can slow the game clock and live audio when the host falls behind.
+- Rebuilt and installed the branch runtime with a rollback copy. Verified the installed executable in an isolated
+  background replay. F8 logged 2x, 4x and 1x in order, and F7 saved two full-resolution captures.
+
 ### Build fixes (the source as shipped didn't build with the bundled GCC 16)
 - `plat.c`: missing `#include <math.h>`; `svc_core.c`: `ipc_warn_once` used before its declaration.
 - `plat.c`: prebuilt `vp9/win/libvpx.a` calls `_setjmp`, which the UCRT import library no longer exports; a jump shim
@@ -486,6 +497,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 | Date | Where | What | State |
 | --- | --- | --- | --- |
+| 2026-11-27 | Owner fast-forward trial | F8 saved screenshots and smooth recording started on the November 25 executable. | old runtime replaced (bug 21). Pitch and gameplay timing still need a check on the current build |
 | 2026-11-27 | Windows/OpenGL hotkeys | The remapped keys saved an F5 trace, an F6 recording and two F7 PNGs. F6 returned the game to 1x. F8 cycled the speed before and after recording. F9 switched controller 1 to one Joy-Con and back. | background smoke check passed |
 | 2026-11-27 | Windows/OpenGL opening, isolated Minigame Bay save | Background 1x, 2x and 4x runs completed and full-resolution captures showed some progression gains at the faster settings. Heavy sections stayed around 42-50 guest presents/s across all three targets. A scripted run cycled the speed through all three speeds, captured an F5 trace at 4x, and saved a video recording with 0 dropped frames and 0 lost audio packets. | controls and diagnostics verified. Full target progression and audible transitions remain open |
 | 2026-11-27 | Raceway, turn 2 | A 4x-target background replay resumed the board, advanced the Jamboree Buddy tutorial and completed CPU actions without a stall report. Before board entry, a lighter scene reached 107 guest presents/s with 60 window swaps/s. | board CPU turn smoke check passed. Exact turn speed still needs matched runs |
@@ -523,7 +535,7 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 | M8 | Jr.'s Jauntlet | the arena floor has horizontal scanlines over its pictures (screen effect?) | pending |
 | M9 | Rewards screen | the area below the header is plain black | pending |
 | M10 | Motion minigames | with F9 (one Joy-Con) the right stick tilts and O shakes; do the 25 motion games feel playable? | pending |
-| M11 | Fast-forward audio | Check pitch and continuity at 1x, 2x and 4x during play and when switching back to 1x. | pending |
+| M11 | Fast-forward audio | Check pitch and continuity at 1x, 2x and 4x during play and when switching back to 1x. | initial report came from the older runtime (bug 21). Current build pending |
 
 ## 8. Next steps
 1. Owner checks M1-M11 (section 7): fold the results back into the playtest log and fix what differs.

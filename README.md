@@ -51,6 +51,9 @@ F5 traces a frame, F6 records video, F7 captures a full-resolution PNG, and F8 c
 The window title shows the speed target. Starting a recording returns it to 1x.
 Hold Esc for 1.5 s to quit (a tap does nothing).
 
+If F1 lists F8 as a screenshot shortcut, the game is launching an older runtime. Update the game executable
+with the rebuilt runtime as described in the [developer guide](DEVELOPER_GUIDE.md#2-building).
+
 ## Never commit or share
 
 The `.gitignore` blocks these, but check `git status` before every push:
