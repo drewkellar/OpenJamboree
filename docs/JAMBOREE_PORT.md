@@ -303,6 +303,29 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - Result: the sea renders clean on the pier and behind the minigame list. The log notes the first stencil views
   (`gpu: depth-stencil ... read as stencil`).
 
+### Bug 19: motion minigames could not be started (fixed, F6)
+- Found in the 2026-11-26 Minigame Bay sweep: Tilt-a-Golf, Night Lights, Hammer It Home, Twist and Sort, Shuttle
+  Scuttle, Tiny Triathlon and Pickax Dash (the second row of the "All" list) answer Play with "Use one Joy-Con to play
+  motion minigames. Change controller settings?". Yes and No both returned to the minigame card.
+- Evidence: the runtime reported controller 1 as a Pro Controller only, with a six-axis sensor fixed at rest, and
+  answered the controller applet with "1 player, controller 1" without changing anything. The game calls
+  `ShowControllerSupport` from one place (`87f4e94`) with the same arguments (1..1 players, single mode and dual both
+  allowed) at boot, on menu changes and on Yes, so the call can't tell that a motion minigame wants a Joy-Con.
+  `SWR_TRACE_FN` on the `nn::hid` six-axis functions showed the game takes handles for Handheld and JoyRight at boot
+  and reads both every frame through `GetSixAxisSensorStates`.
+- Fix (`svc_hid.c`, `kernel.c`, `backend_win32.c`): a single Joy-Con mode for controller 1. It reports style JoyRight,
+  device type right Joy-Con, single assignment, the right-connected attribute, its own button LIFO and six-axis LIFO,
+  and `IsSixAxisSensorAtRest` false. The six-axis state follows the right stick (orientation matrix, gravity,
+  angular velocity and angle, 1/60 s steps), and the right stick button adds a shake. The handheld sensor gets the
+  same motion. Turned on by F6 or `single_joycon=1`, by `SWR_SINGLE_JOYCON=1`, by `SetNpadJoyAssignmentModeSingle`
+  on controller 1, or when the game allows only single Joy-Con styles; `SetNpadJoyAssignmentModeDual` and F6 turn
+  it off. `SWR_NO_SINGLE_JOYCON=1` disables it.
+- Two things the first try got wrong, kept here: switching on every applet call that allowed single mode left the
+  title screen waiting for L+R (a right Joy-Con has none: SL/SR now stand in). Pushing the handheld sensor twice per
+  sample (at rest, then moving, same sampling number) froze the game at boot; it gets one entry per sample now.
+- Result: after F6, Tilt-a-Golf starts without the prompt. A drops the ball, the right stick tilts the board and the
+  ball rolls. Menus and an ordinary minigame (Lumber Tumble) work in this mode with the normal keys.
+
 ### Build fixes (the source as shipped didn't build with the bundled GCC 16)
 - `plat.c`: missing `#include <math.h>`; `svc_core.c`: `ipc_warn_once` used before its declaration.
 - `plat.c`: prebuilt `vp9/win/libvpx.a` calls `_setjmp`, which the UCRT import library no longer exports; a jump shim
@@ -319,6 +342,12 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   `exefs/main`, a folder picker asks for the dump (3 tries, then a clear error). The dump's `main.npdm` program id
   must match the recompiled code's title id.
 - `switchrecomp.py --link`: recompile without copying exefs/romfs (5.4 GB), writes `game_dump=` into the `.ini`.
+- Motion minigames (bug 19): **F6** switches controller 1 between a Pro Controller and one Joy-Con (R) held on its
+  own, saved as `single_joycon=0/1` in the `.ini`. As one Joy-Con, the right stick (IJKL keys, or the mouse in mouse
+  mode) tilts the controller up to about 60 degrees and the right stick button (**O** on the keyboard) shakes it.
+  L/R press the Joy-Con's SL/SR, and the d-pad (arrow keys) moves its stick. When the game holds it sideways (menus,
+  most minigames) the face buttons are mapped to where they sit on a sideways Joy-Con, so A stays A. F1 lists F6 and
+  the new **U/O** stick-click keys.
 
 ## 4. Diagnostic switches added
 
@@ -352,6 +381,9 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_SHOT8_FLAG=N` | while a file `burst.flag` exists in the game folder, an F8 capture every N presents (a test script creates it when OCR sees the screen it wants) |
 | `SWR_TRACE_EVERY=N[@s[,max]]` | an F5 trace every N presents from s seconds, up to max (default 20) |
 | (F5 trace) | line draws also list the line widths, the shader stage registers and the first 16 vertices' float attributes; every draw lists the provoking vertex |
+| `SWR_SINGLE_JOYCON=1` / `SWR_NO_SINGLE_JOYCON=1` | start controller 1 as one Joy-Con / never switch to it (bug 19) |
+| `SWR_TRACE_FN_EVERY=N` | with `SWR_TRACE_FN`, also log every Nth call with the 0x60 bytes its first argument points to (sensor states). `SWR_TRACE_FN` now also logs each new return address after the first 8 calls |
+| (log) `hid:` | controller applet calls with their arguments and caller chain, single Joy-Con mode on/off, Joy-Con hold type |
 | `SWR_NO_STENCIL_VIEW=1` | read depth-stencil textures as depth even when the TIC asks for the stencil (pre-bug-18) |
 | `SWR_KEEP_DRAWN_FS=<fs>` / `0` | which copy shader protects its RT from a clear later in the frame (bug 12); 0 = off |
 | `_work/sdis.py <sh_*.bin>` | rough listing of a dumped shader (word index = `case N` in the GLSL, guards, CC tests) |

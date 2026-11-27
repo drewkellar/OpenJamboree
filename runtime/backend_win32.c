@@ -47,6 +47,7 @@ void backend_ini(const char* k, const char* v){
   }
   else if(!strcmp(k,"mouse_invert")) g_mouse_invert=atoi(v)&3;
   else if(!strcmp(k,"pad_buttons")) g_pad_by_position=atoi(v)==1;
+  else if(!strcmp(k,"single_joycon")){ extern void hid_set_single(int); hid_set_single(atoi(v)==1); }
   else if(!strcmp(k,"script")) strncpy(g_script,v,8191);
   else if(!strcmp(k,"renderer")){   /* opengl (default), vulkan (the NVN layer, runtime/nvn) or eden (edenvk.h) */
     { static int set_nvn; int nv= !strcmp(v,"vulkan");
@@ -151,16 +152,16 @@ void backend_rec_state(int on){ if(g_hwnd) PostMessageA(g_hwnd,WM_APP+8,(WPARAM)
    gray page, rows with the value in cyan, cyan frame on the selected row, button hints at the bottom). the options
    get saved in the game's ini */
 #define CW_W 760
-#define CW_H 620
+#define CW_H 648
 #define CW_ROW 46
 #define CW_LIST_Y 84
 #define CW_NOPT 4
 static const char* inversion_names[]={"Normal", "Left / right inverted", "Up / down inverted", "Both inverted"};
 static const char* const cw_keys[][2]={
   {"D-Pad","Arrows"}, {"Left stick","W A S D"}, {"Right stick","I J K L (or the mouse)"}, {"A  B  X  Y","X/Space  Z  C  V"},
-  {"L  R  ZL  ZR","Q  E  1  3"}, {"+  -","Enter  Backspace"}, {"Controller","Xbox (XInput) pad"}};
+  {"L  R  ZL  ZR","Q  E  1  3"}, {"+  -","Enter  Backspace"}, {"Stick clicks","U  O"}, {"Controller","Xbox (XInput) pad"}};
 static const char* const cw_fkeys[][2]={
-  {"F1","This page"}, {"F3","Screenshot"}, {"F4","FPS limit on/off"}, {"F5","Diagnostic trace"},
+  {"F1","This page"}, {"F3","Screenshot"}, {"F4","FPS limit on/off"}, {"F5","Diagnostic trace"}, {"F6","Pro Controller / one Joy-Con"},
   {"F7","Record video"}, {"F8","Full resolution capture"}, {"F11","Fullscreen"}, {"Esc","Hold 1.5 s to quit"}};
 static int cw_sel;
 static HFONT cw_font(int px, int weight){ return CreateFontA(-px,0,0,0,weight,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,"Segoe UI"); }
@@ -207,9 +208,9 @@ static void cw_paint(HWND h){
     RoundRect(dc,38,y-1,CW_W-38,y+CW_ROW+2,10,10); DeleteObject(pn); }
   int ky=CW_LIST_Y+CW_NOPT*CW_ROW+22;
   cw_text(dc,fs,"KEYBOARD",64,ky,300,24,DT_LEFT,dim); cw_text(dc,fs,"KEYS",410,ky,300,24,DT_LEFT,dim);
-  for(int i=0;i<7;i++){ int y=ky+28+i*28;
+  for(int i=0;i<(int)(sizeof cw_keys/sizeof cw_keys[0]);i++){ int y=ky+28+i*28;
     cw_text(dc,fs,cw_keys[i][0],64,y,120,28,DT_LEFT,text); cw_text(dc,fs,cw_keys[i][1],170,y,220,28,DT_LEFT,accent); }
-  for(int i=0;i<8;i++){ int y=ky+28+i*28;
+  for(int i=0;i<(int)(sizeof cw_fkeys/sizeof cw_fkeys[0]);i++){ int y=ky+28+i*28;
     cw_text(dc,fs,cw_fkeys[i][0],410,y,50,28,DT_LEFT,accent); cw_text(dc,fs,cw_fkeys[i][1],460,y,260,28,DT_LEFT,text); }
   cw_rect(dc,30,CW_H-60,CW_W-60,1,text);
   int x=cw_hint(dc,fk,fb,CW_W-40,CW_H-30,"A","Change");
@@ -258,7 +259,8 @@ static u64 keymap(WPARAM k){
     case VK_LEFT: return 1ull<<12; case VK_UP: return 1ull<<13; case VK_RIGHT: return 1ull<<14; case VK_DOWN: return 1ull<<15;
     /* stick keys, turned into axes later */
     case 'A': return 1ull<<40; case 'W': return 1ull<<41; case 'D': return 1ull<<42; case 'S': return 1ull<<43;
-    case 'J': return 1ull<<44; case 'I': return 1ull<<45; case 'L': return 1ull<<46; case 'K': return 1ull<<47; }
+    case 'J': return 1ull<<44; case 'I': return 1ull<<45; case 'L': return 1ull<<46; case 'K': return 1ull<<47;
+    case 'U': return 1ull<<4; case 'O': return 1ull<<5; }   /* stick buttons (L3 / R3; R3 also shakes a single Joy-Con) */
   return 0; }
 
 static u64 g_esc_t0;   /* when Esc went down (0 = up): held 1.5 s quits */
@@ -280,7 +282,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
       if(!(l&(1<<30)) || !g_esc_t0){ g_esc_t0=plat_ns(); char t[300]; snprintf(t,sizeof t,"%s  |  Hold Esc to quit",g_title); SetWindowTextA(h,t); return 0; }
       if(plat_ns()-g_esc_t0>=1500000000ull){ LOG("window: Esc held, quitting\n"); g_quit=1; }
       return 0; }
-    if((l&(1<<30)) && (w==VK_F1||w==VK_F3||w==VK_F4||w==VK_F5||w==VK_F7||w==VK_F8||w==VK_F11)) return 0;
+    if((l&(1<<30)) && (w==VK_F1||w==VK_F3||w==VK_F4||w==VK_F5||w==VK_F6||w==VK_F7||w==VK_F8||w==VK_F11)) return 0;
     if(w==VK_F11){ set_fullscreen(!g_fullscreen); return 0; }
     if(w==VK_F1){ show_controls(); return 0; }
     if(w==VK_F3){ g_shot_req=1; return 0; }
@@ -290,6 +292,11 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
       CreateDirectoryA("captures",NULL); FILE* f=fopen("captures/threads.txt","w");   /* written next to the trace */
       if(f){ g_log_redirect=f; kernel_dump_threads(); g_log_redirect=NULL; fclose(f); }
       kernel_dump_threads(); gpu_gl_dump_rts(); return 0; }
+    if(w==VK_F6){ /* controller 1: Pro Controller or one Joy-Con held on its own. Motion minigames ask for one Joy-Con
+                     ("Use one Joy-Con to play motion minigames"): switch here, then answer Yes */
+      extern int hid_get_single(void); extern void hid_set_single(int); extern void ini_set(const char*, const char*);
+      int on=!hid_get_single(); hid_set_single(on); ini_set("single_joycon",on? "1" : "0");
+      SetWindowTextA(h,on? "Controller: one Joy-Con (motion: right stick tilts, O shakes)" : "Controller: Pro Controller"); return 0; }
     if(w==VK_F4){ g_opt_fps= g_opt_fps==0? 1 : 0; char t[64]; snprintf(t,sizeof t,"FPS limit: %s",g_opt_fps==0? "unlimited" : "60"); SetWindowTextA(h,t); { extern void ini_set(const char*, const char*); char v[8]; snprintf(v,sizeof v,"%d",g_opt_fps); ini_set("fps_limit",v); } return 0; }
     keys_held|=keymap(w); return 0;
   case WM_SYSKEYUP: case WM_KEYUP: if(w==VK_ESCAPE){ g_esc_t0=0; SetWindowTextA(h,g_title); } keys_held&=~keymap(w); return 0;

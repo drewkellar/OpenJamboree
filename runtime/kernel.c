@@ -569,6 +569,14 @@ static void guest_backtrace(CPU* c){
    turns this off */
 static void hle_ctrl_support(CPU* RESTRICT c, u64 entry){ (void)entry;
   u64 info=c->x[0]; if(info>=AS_BASE && info<AS_SIZE){ u32 v[2]={1,0}; memcpy(GP(info),v,8); }   /* playerCount=1 (+pad), selectedId=No1 */
+  /* ControllerSupportArg header: min/max players, take over, left justify, permit dual, single mode, ... a request
+     for single mode (motion minigames) turns No1 into one Joy-Con, as the player would on the console */
+  { u64 arg=c->x[1]; if(arg>=AS_BASE && arg<AS_SIZE-32){ extern void hid_set_single(int); u8 h[32]; memcpy(h,GP(arg),32);
+      static int said2; if(said2<40){ said2++;
+        u64 cs[4]={0,0,0,0}; u64 fp=c->x[29]; for(int i=0;i<4 && fp>=AS_BASE && fp<AS_SIZE-16 && !(fp&7);i++){ cs[i]=gr64(fp+8); fp=gr64(fp); }
+        LOG("hid: ShowControllerSupport players %d..%d, single mode %d, permit dual %d, from %llx < %llx < %llx < %llx < %llx, arg %02x%02x%02x%02x %02x%02x%02x%02x\n",(i8)h[0],(i8)h[1],h[5],h[4],(unsigned long long)c->x[30],
+          (unsigned long long)cs[0],(unsigned long long)cs[1],(unsigned long long)cs[2],(unsigned long long)cs[3],h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7]); }
+      if(h[5] && !h[4]) hid_set_single(1); } }   /* single allowed and dual not: the player has to hold one Joy-Con */
   c->x[0]=0; c->pc=c->x[30];   /* return like RET: callers check pc == their return address */
   static int said; if(!said){ said=1; LOG("hid: ShowControllerSupport answered by the runtime (1 player, controller 1)\n"); } }
 
@@ -663,8 +671,19 @@ static void hle_fn_trace(CPU* RESTRICT c, u64 entry){
   int k=-1; for(int i=0;i<g_ntf;i++) if(g_tf[i].a==entry){ k=i; break; }
   if(k<0){ c->x[0]=0; c->pc=c->x[30]; return; }
   u64 a0=c->x[0], a1=c->x[1], a2=c->x[2], a3=c->x[3], lr=c->x[30];
+  /* past the first 8 calls, a call from a return address not seen before is still logged (once each, up to 400):
+     a rare call site (a menu, a prompt) shows up even when the function also runs every frame */
+  { static u64 seen[400][2]; static int ns; int s2=0; for(;s2<ns;s2++) if(seen[s2][0]==entry && seen[s2][1]==lr) break;
+    if(s2==ns && ns<400){ seen[ns][0]=entry; seen[ns][1]=lr; ns++; if(g_tf[k].n>=8) g_tf[k].n=7; } }
   if(g_tf[k].n<8) LOG("trace: %llx(%llx, %llx, %llx, %llx) from %llx called\n",(unsigned long long)entry,(unsigned long long)a0,(unsigned long long)a1,(unsigned long long)a2,(unsigned long long)a3,(unsigned long long)lr);   /* a call that never returns still shows */
   g_tf[k].f(c,entry);
+  /* SWR_TRACE_FN_EVERY=N: also log every Nth call, with the first 0x60 bytes the first argument points to (an
+     out struct such as a sensor state) */
+  { static int every=-1; if(every<0){ const char* e=getenv("SWR_TRACE_FN_EVERY"); every= e? atoi(e) : 0; }
+    static u32 cnt[TF_MAX]; if(every>0 && ++cnt[k]%every==0 && a0>=0x1000000ull && a0<(1ull<<39)){ u32 w[24]; memcpy(w,GP(a0),sizeof w);
+      LOG("trace: %llx(%llx, %llx, %llx, %llx) call %u -> %llx: %08x %08x %08x %08x | %08x %08x %08x %08x %08x %08x %08x %08x %08x | %08x %08x %08x %08x %08x %08x %08x %08x %08x | %08x %08x\n",
+        (unsigned long long)entry,(unsigned long long)a0,(unsigned long long)a1,(unsigned long long)a2,(unsigned long long)a3,cnt[k],(unsigned long long)c->x[0],
+        w[0],w[1],w[2],w[3],w[4],w[5],w[6],w[7],w[8],w[9],w[10],w[11],w[12],w[13],w[14],w[15],w[16],w[17],w[18],w[19],w[20],w[21],w[22],w[23]); } }
   if(g_tf[k].n<8 && ++g_tf[k].n){
     /* the first argument is often an out pointer (PosixTime*, CalendarTime*...): show the 16 bytes it holds now */
     u64 o0=0, o1=0; int outp= a0>=0x1000000ull && a0<(1ull<<39) && !(a0&7); if(outp){ memcpy(&o0,GP(a0),8); memcpy(&o1,GP(a0+8),8); }
