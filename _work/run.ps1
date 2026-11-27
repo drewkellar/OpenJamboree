@@ -52,14 +52,14 @@ try {
     }
     if($shotIdx -lt $Shots.Count -and $el -ge $Shots[$shotIdx]){
       if($h -ne 0){
-        # the runtime's own F8 screenshot (a desktop capture of the GL window comes out black)
-        $cap="$game\captures"; $before=@(Get-ChildItem "$cap\F8_*.png" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
-        $sc=[W]::MapVirtualKey(0x77,0); [W]::PostMessage($h,0x100,[IntPtr]0x77,[IntPtr](1 -bor ($sc -shl 16))) | Out-Null
-        Start-Sleep -Milliseconds 100; [W]::PostMessage($h,0x101,[IntPtr]0x77,[IntPtr]([int64]0xC0000001 -bor ($sc -shl 16))) | Out-Null
+        # the runtime's own F7 screenshot (a desktop capture of the GL window comes out black)
+        $cap="$game\captures"; $before=@(Get-ChildItem "$cap\F7_*.png" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+        $sc=[W]::MapVirtualKey(0x76,0); [W]::PostMessage($h,0x100,[IntPtr]0x76,[IntPtr](1 -bor ($sc -shl 16))) | Out-Null
+        Start-Sleep -Milliseconds 100; [W]::PostMessage($h,0x101,[IntPtr]0x76,[IntPtr]([int64]0xC0000001 -bor ($sc -shl 16))) | Out-Null
         $f="$out\$Tag`_$($Shots[$shotIdx])s.png"; $got=$null
         for($i=0;$i -lt 30 -and -not $got;$i++){ Start-Sleep -Milliseconds 100
-          $got=Get-ChildItem "$cap\F8_*.png" -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.FullName } | Select-Object -First 1 }
-        if($got){ Start-Sleep -Milliseconds 300; Move-Item $got.FullName $f -Force; Write-Output "shot $f" } else { Write-Output "no F8 shot at $([int]$el)s" }
+          $got=Get-ChildItem "$cap\F7_*.png" -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.FullName } | Select-Object -First 1 }
+        if($got){ Start-Sleep -Milliseconds 300; Move-Item $got.FullName $f -Force; Write-Output "shot $f" } else { Write-Output "no F7 shot at $([int]$el)s" }
       }
       else { Write-Output "no hwnd at $([int]$el)s" }
       $shotIdx++

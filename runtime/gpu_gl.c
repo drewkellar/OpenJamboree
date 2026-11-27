@@ -3381,7 +3381,7 @@ static const char* BLIT_VS="#version 430 core\nout vec2 uv; uniform vec4 xf; voi
 static const char* BLIT_FS="#version 430 core\nin vec2 uv; out vec4 o; layout(binding=0) uniform sampler2D t; void main(){ o=vec4(texture(t,uv).rgb,1.0); }";
 volatile i32 g_vi_crop[4]; volatile u32 g_vi_transform;   /* crop/transform from QueueBuffer */
 #ifdef _WIN32
-/* ============================================================ F7 recorder
+/* ============================================================ F6 recorder
    every presented frame gets converted to NV12 (BT.709) on the gpu at window size, same letterboxing as on screen.
    it's read back through a PBO two frames later so the GPU thread never waits, windows does the H.264 encode on
    its own thread */
@@ -3463,7 +3463,7 @@ static void rec_capture(GLuint tex, const float* xf, int tw, int th){
   if(g_rec_on && rec_failed()){ rec_stop(); return; }
   if(g_rec_toggle){ g_rec_toggle=0; if(g_rec_on) rec_stop(); else rec_start(); }
   if(!g_rec_on) return;
-  /* a frame queued before F7 was pressed belongs to the old timeline */
+  /* a frame queued before F6 was pressed belongs to the old timeline */
   if(g_present_guest_ns && g_present_guest_ns<g_rec_vt0) return;
   u64 now=plat_ns(); if(!swr_smooth_clock() && g_rec_last && now-g_rec_last<15500000ull) return;   /* max 60/s (smooth mode: every real frame) */
   g_rec_last=now;
@@ -3491,9 +3491,9 @@ static void rec_capture(GLuint tex, const float* xf, int tw, int th){ (void)tex;
 
 void gpu_gl_rec_finish(void){}
 #endif
-/* ============================================================ F8 full res screenshot (png)
+/* ============================================================ F7 full res screenshot (png)
    the gpu copies the frame into a PBO, we map it a frame or two later and a worker thread writes the png */
-volatile int g_shot8_req;
+volatile int g_png_capture_req;
 static GLuint g_s8_fbo, g_s8_tex, g_s8_pbo; static GLsync g_s8_sync; static int g_s8_w, g_s8_h, g_s8_tw, g_s8_th;
 static PFNGLMAPBUFFERRANGEPROC p_s8map; static PFNGLUNMAPBUFFERPROC p_s8unmap; static PFNGLFENCESYNCPROC p_s8fs; static PFNGLCLIENTWAITSYNCPROC p_s8cws; static PFNGLDELETESYNCPROC p_s8ds;
 typedef struct { u8* px; int w, h; char path[320]; } S8Job;
@@ -3523,8 +3523,8 @@ static void s8_thread(void* arg){
     FILE* f=fopen(j->path,"wb");
     if(f){ static const u8 sig[8]={0x89,'P','N','G',13,10,26,10}; fwrite(sig,1,8,f);
       u8 ih[13]; s8_be32(ih,(u32)w); s8_be32(ih+4,(u32)h); ih[8]=8; ih[9]=2; ih[10]=0; ih[11]=0; ih[12]=0; s8_chunk(f,"IHDR",ih,13);
-      s8_chunk(f,"IDAT",z,(u32)o); s8_chunk(f,"IEND",NULL,0); fclose(f); LOG("F8 screenshot: %s (%dx%d)\n",j->path,w,h); }
-    else WARN("F8 screenshot: could not write %s\n",j->path);
+      s8_chunk(f,"IDAT",z,(u32)o); s8_chunk(f,"IEND",NULL,0); fclose(f); LOG("F7 screenshot: %s (%dx%d)\n",j->path,w,h); }
+    else WARN("F7 screenshot: could not write %s\n",j->path);
     free(z); }
   free(r); free(j); }
 
@@ -3537,7 +3537,7 @@ static void shot8_poll(void){
   S8Job* j=calloc(1,sizeof *j);
   if(p && j && (j->px=malloc(n))){ memcpy(j->px,p,n); j->w=g_s8_w; j->h=g_s8_h;
     time_t tt=time(NULL); struct tm* tm=localtime(&tt); static int seq;
-    plat_mkdir("captures"); snprintf(j->path,sizeof j->path,"captures/F8_%04d%02d%02d_%02d%02d%02d_%d.png",tm->tm_year+1900,tm->tm_mon+1,tm->tm_mday,tm->tm_hour,tm->tm_min,tm->tm_sec,++seq);
+    plat_mkdir("captures"); snprintf(j->path,sizeof j->path,"captures/F7_%04d%02d%02d_%02d%02d%02d_%d.png",tm->tm_year+1900,tm->tm_mon+1,tm->tm_mday,tm->tm_hour,tm->tm_min,tm->tm_sec,++seq);
     if(plat_thread(s8_thread,j,4u<<20)){ s8_thread(j); } j=NULL; }
   if(j){ free(j->px); free(j); }
   if(p) p_s8unmap(GL_PIXEL_PACK_BUFFER);
@@ -3545,28 +3545,28 @@ static void shot8_poll(void){
 
 static void shot8_capture(GLuint tex, const float* xf, int tw, int th){
   shot8_poll();
-  { static int tf; if(!tf){ tf= getenv("SWR_SHOT8_TEST")? 1 : -1; } if(tf>0 && ++tf==40) g_shot8_req=1; }   /* automated test hook */
-  /* SWR_SHOT8_EVERY=N[@s[,max]]: an F8 capture every N presents (tests), optionally from s seconds after the first
+  { static int tf; if(!tf){ tf= getenv("SWR_SHOT8_TEST")? 1 : -1; } if(tf>0 && ++tf==40) g_png_capture_req=1; }   /* automated test hook */
+  /* SWR_SHOT8_EVERY=N[@s[,max]]: an F7 capture every N presents (tests), optionally from s seconds after the first
      present and up to max captures (default 40); short bursts show how long a transition lasts */
   { static int ev=-1, n, shots, mx=40; static double from; static u64 t0; if(ev<0){ const char* e=getenv("SWR_SHOT8_EVERY"); ev= e? atoi(e) : 0;
       const char* at= e? strchr(e,'@') : NULL; if(at){ from=atof(at+1); const char* c=strchr(at,','); if(c){ mx=atoi(c+1); if(mx<1) mx=1; if(mx>2000) mx=2000; } } }
     if(!t0) t0=plat_ns();
-    if(ev>0 && shots<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ g_shot8_req=1; shots++; } }
-  /* SWR_SHOT8_FLAG=N: while a file named burst.flag exists in the game folder, an F8 capture every N presents (a test
+    if(ev>0 && shots<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ g_png_capture_req=1; shots++; } }
+  /* SWR_SHOT8_FLAG=N: while a file named burst.flag exists in the game folder, an F7 capture every N presents (a test
      script creates it when it sees the screen it wants frame by frame); checked every 15 presents, at most 3000 */
   { static int ev=-1, n, on, shots; if(ev<0){ const char* e=getenv("SWR_SHOT8_FLAG"); ev= e? atoi(e) : 0; }
     if(ev>0){ if(++n%15==0){ FILE* f=fopen("burst.flag","rb"); on= f!=NULL; if(f) fclose(f); }
-      if(on && shots<3000 && n%ev==0){ g_shot8_req=1; shots++; } } }
+      if(on && shots<3000 && n%ev==0){ g_png_capture_req=1; shots++; } } }
   /* SWR_TRACE_EVERY=N@s,max: an F5 trace every N presents from s seconds (catches glitches whose timing varies) */
   { static int ev=-1, n, tr, mx=20; static double from; static u64 t0; if(ev<0){ const char* e=getenv("SWR_TRACE_EVERY"); ev= e? atoi(e) : 0;
       const char* at= e? strchr(e,'@') : NULL; if(at){ from=atof(at+1); const char* c=strchr(at,','); if(c){ mx=atoi(c+1); if(mx<1) mx=1; if(mx>200) mx=200; } } }
     if(!t0) t0=plat_ns();
     if(ev>0 && tr<mx && (plat_ns()-t0)/1e9>=from && ++n%ev==0){ g_tr_arm=1; tr++; } }
-  if(!g_shot8_req || g_s8_sync) return;
-  g_shot8_req=0;
+  if(!g_png_capture_req || g_s8_sync) return;
+  g_png_capture_req=0;
   if(!p_s8map){ p_s8map=(PFNGLMAPBUFFERRANGEPROC)backend_gl_proc("glMapBufferRange"); p_s8unmap=(PFNGLUNMAPBUFFERPROC)backend_gl_proc("glUnmapBuffer");
     p_s8fs=(PFNGLFENCESYNCPROC)backend_gl_proc("glFenceSync"); p_s8cws=(PFNGLCLIENTWAITSYNCPROC)backend_gl_proc("glClientWaitSync"); p_s8ds=(PFNGLDELETESYNCPROC)backend_gl_proc("glDeleteSync"); }
-  if(!p_s8map || !p_s8unmap || !p_s8fs || !p_s8cws || !p_s8ds){ WARN("F8 screenshot: the video driver lacks the required features\n"); return; }
+  if(!p_s8map || !p_s8unmap || !p_s8fs || !p_s8cws || !p_s8ds){ WARN("F7 screenshot: the video driver lacks the required features\n"); return; }
   /* actual size of the shown content (visible part of the texture) */
   int w=(int)(tw*fabsf(xf[2])+0.5f), h=(int)(th*fabsf(xf[3])+0.5f); if(w<16||h<16||w>8192||h>8192) return;
   if(w!=g_s8_w || h!=g_s8_h){
@@ -3694,7 +3694,7 @@ static void blit_to_screen(GLuint tex, int flip, int tw, int th){ state_dirty();
     u64 now=plat_ns();
     g_lf_on=0;
     g_lf_last=0;
-    show=now+500000ull>=next_display || g_shot8_req;
+    show=now+500000ull>=next_display || g_png_capture_req;
     if(!next_display || now>next_display+period) next_display=now;
     if(now+500000ull>=next_display) next_display+=period;
   } else next_display=0;
@@ -4188,7 +4188,7 @@ static void gpu_thread(void* arg){ t_gpu_thread=1;
 #ifdef _WIN32
     if(g_rec_on && rec_failed()) rec_stop();
     if(g_rec_exit==1){ rec_stop(); g_rec_exit=2; }
-    if(g_rec_toggle && g_rec_on){ g_rec_toggle=0; rec_stop(); }   /* let F7 stop even when nothing is being presented */
+    if(g_rec_toggle && g_rec_on){ g_rec_toggle=0; rec_stop(); }   /* let F6 stop even when nothing is being presented */
 #endif
     if(cs_inflight()){ cs_complete(0); cs_stale_check(); if(cs_inflight() && to_>1000000) to_=1000000; }
     if(g_parked_any){ g_parked_any=gpu_chan_pump_all(); if(g_parked_any && to_>500000) to_=500000; }

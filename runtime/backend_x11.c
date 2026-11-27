@@ -3,7 +3,7 @@
    Forks and derived works have to keep the credit to SwitchRecomp by MZ Labs and the startup screen. */
 /* X11 + GLX 4.3 backend, the linux version of backend_win32.c (wayland desktops run it through XWayland).
    controllers come from SDL2, loaded at run time like XInput on windows. F1 help F3 screenshot F4 fps limit F5
-   trace F8 full res screenshot F11/Alt+Enter fullscreen Esc quit. the Xvfb tests run on this too (screenshots,
+   trace F7 full res screenshot F8 fast-forward F11/Alt+Enter fullscreen Esc quit. the Xvfb tests run on this too (screenshots,
    scripted input) */
 #include "rt.h"
 #include <X11/Xlib.h>
@@ -119,8 +119,8 @@ static const char* HELP=
   "  X / Space = A    Z = B    C = X    V = Y\n"
   "  Q = L   E = R   1 = ZL   3 = ZR   Enter = +   Backspace = -\n\n"
   "F1 = this help   F3 = screenshot   F4 = FPS limit 60 / unlimited   F5 = diagnostic dump (trace)\n"
-  "F8 = instant full-resolution screenshot (PNG in the captures folder)\n"
-  "F9 = fast-forward (OpenGL)   F11 / Alt+Enter = fullscreen   Esc = quit";
+  "F7 = instant full-resolution screenshot (PNG in the captures folder)\n"
+  "F8 = fast-forward (OpenGL)   F11 / Alt+Enter = fullscreen   Esc = quit";
 
 void video_init(const char* title){
   snprintf(g_title,sizeof g_title,"%s - SwitchRecomp  (F1 help)",title);
@@ -223,9 +223,9 @@ static void key_down(XKeyEvent* e){
     case XK_F11: if(once) set_fullscreen(!g_fullscreen); return;
     case XK_F1: if(once){ LOG("%s\n",HELP); plat_message(HELP,0,0); } return;
     case XK_F3: if(once) g_shot_req=1; return;
-    case XK_F7: if(once) LOG("F7 video recording is only available on Windows\n"); return;
-    case XK_F9: if(once && swr_speed_cycle()) set_title(NULL); return;
-    case XK_F8: if(once){ extern volatile int g_shot8_req; g_shot8_req=1; } return;
+    case XK_F6: if(once) LOG("F6 video recording is only available on Windows\n"); return;
+    case XK_F7: if(once){ extern volatile int g_png_capture_req; g_png_capture_req=1; } return;
+    case XK_F8: if(once && swr_speed_cycle()) set_title(NULL); return;
     case XK_F5: if(once){ extern void gpu_gl_dump_rts(void); extern void kernel_dump_threads(void); extern __thread FILE* g_log_redirect;
         plat_mkdir("captures"); FILE* f=fopen("captures/threads.txt","w");   /* written next to the trace */
         if(f){ g_log_redirect=f; kernel_dump_threads(); g_log_redirect=NULL; fclose(f); }
@@ -242,7 +242,7 @@ void video_poll(void){
     if(e.type==KeyPress) key_down(&e.xkey);
     else if(e.type==KeyRelease){
       KeySym k=XLookupKeysym(&e.xkey,0);
-      if(k==XK_F9 && XEventsQueued(dpy,QueuedAfterReading)){
+      if(k==XK_F8 && XEventsQueued(dpy,QueuedAfterReading)){
         /* Legacy X11 autorepeat synthesizes a release/press pair with the same timestamp. */
         XEvent next; XPeekEvent(dpy,&next);
         if(next.type==KeyPress && next.xkey.keycode==e.xkey.keycode && next.xkey.time==e.xkey.time) continue;

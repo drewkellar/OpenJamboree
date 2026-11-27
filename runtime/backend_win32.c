@@ -150,7 +150,7 @@ static void set_game_title(HWND h, const char* status){
 
 void backend_lsfg_state(int on, int mult){ if(g_hwnd) PostMessageA(g_hwnd,WM_APP+7,(WPARAM)on,(LPARAM)mult); }
 
-/* F7 recording state in the title bar */
+/* F6 recording state in the title bar */
 volatile int g_rec_toggle;
 
 void backend_rec_state(int on){ if(g_hwnd) PostMessageA(g_hwnd,WM_APP+8,(WPARAM)on,0); }
@@ -168,8 +168,8 @@ static const char* const cw_keys[][2]={
   {"D-Pad","Arrows"}, {"Left stick","W A S D"}, {"Right stick","I J K L (or the mouse)"}, {"A  B  X  Y","X/Space  Z  C  V"},
   {"L  R  ZL  ZR","Q  E  1  3"}, {"+  -","Enter  Backspace"}, {"Stick clicks","U  O"}, {"Controller","Xbox (XInput) pad"}};
 static const char* const cw_fkeys[][2]={
-  {"F1","This page"}, {"F3","Screenshot"}, {"F4","FPS limit on/off"}, {"F5","Diagnostic trace"}, {"F6","Pro Controller / one Joy-Con"},
-  {"F7","Record video"}, {"F8","Full resolution capture"}, {"F9","Fast-forward (OpenGL)"}, {"F11","Fullscreen"}, {"Esc","Hold 1.5 s to quit"}};
+  {"F1","This page"}, {"F3","Screenshot"}, {"F4","FPS limit on/off"}, {"F5","Diagnostic trace"},
+  {"F6","Record video"}, {"F7","Full resolution capture"}, {"F8","Fast-forward (OpenGL)"}, {"F9","Pro Controller / one Joy-Con"}, {"F11","Fullscreen"}, {"Esc","Hold 1.5 s to quit"}};
 static int cw_sel;
 static HFONT cw_font(int px, int weight){ return CreateFontA(-px,0,0,0,weight,0,0,0,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,"Segoe UI"); }
 static void cw_value(int i, char* o, size_t n){
@@ -282,7 +282,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
   case WM_SYSKEYDOWN: if(w==VK_RETURN){ if(!(l&(1<<30))) set_fullscreen(!g_fullscreen); return 0; } if(w==VK_F4) break; /* let Alt+F4 through */
   /* fallthrough */
   case WM_KEYDOWN:
-    /* a held key auto repeats (bit 30), the one shot actions below only fire on the first press or holding F7
+    /* a held key auto repeats (bit 30), the one shot actions below only fire on the first press or holding F6
        would start and stop the recording every frame */
     /* Esc quits only when held (1.5 s): a stray press used to close the game. the title shows the countdown */
     if(w==VK_ESCAPE){
@@ -293,14 +293,14 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
     if(w==VK_F11){ set_fullscreen(!g_fullscreen); return 0; }
     if(w==VK_F1){ show_controls(); return 0; }
     if(w==VK_F3){ g_shot_req=1; return 0; }
-    if(w==VK_F7){ g_rec_toggle=1; return 0; }
-    if(w==VK_F9){ if(swr_speed_cycle()) set_game_title(h,NULL); return 0; }
-    if(w==VK_F8){ extern volatile int g_shot8_req; g_shot8_req=1; return 0; }
+    if(w==VK_F6){ g_rec_toggle=1; return 0; }
+    if(w==VK_F8){ if(swr_speed_cycle()) set_game_title(h,NULL); return 0; }
+    if(w==VK_F7){ extern volatile int g_png_capture_req; g_png_capture_req=1; return 0; }
     if(w==VK_F5){ extern void gpu_gl_dump_rts(void); extern void kernel_dump_threads(void); extern __thread FILE* g_log_redirect;
       CreateDirectoryA("captures",NULL); FILE* f=fopen("captures/threads.txt","w");   /* written next to the trace */
       if(f){ g_log_redirect=f; kernel_dump_threads(); g_log_redirect=NULL; fclose(f); }
       kernel_dump_threads(); gpu_gl_dump_rts(); return 0; }
-    if(w==VK_F6){ /* controller 1: Pro Controller or one Joy-Con held on its own. Motion minigames ask for one Joy-Con
+    if(w==VK_F9){ /* controller 1: Pro Controller or one Joy-Con held on its own. Motion minigames ask for one Joy-Con
                      ("Use one Joy-Con to play motion minigames"): switch here, then answer Yes */
       extern int hid_get_single(void); extern void hid_set_single(int); extern void ini_set(const char*, const char*);
       int on=!hid_get_single(); hid_set_single(on); ini_set("single_joycon",on? "1" : "0");
@@ -315,7 +315,7 @@ static LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l){
       InterlockedExchangeAdd(&g_mouse_dx,raw.data.mouse.lLastX); InterlockedExchangeAdd(&g_mouse_dy,raw.data.mouse.lLastY);
     }break;
   }
-  case WM_APP+8: set_game_title(h,w? "RECORDING (F7 to stop)" : "Video saved in the recordings folder"); return 0;
+  case WM_APP+8: set_game_title(h,w? "RECORDING (F6 to stop)" : "Video saved in the recordings folder"); return 0;
   case WM_APP+7: { char t[64]; if(w) snprintf(t,sizeof t,"LSFG ON x%d (frame generation)",(int)l); else snprintf(t,sizeof t,"LSFG standby"); set_game_title(h,t); return 0; }
   case WM_SETCURSOR: if((g_fullscreen || (g_mouse_mode && !g_controls_open && GetForegroundWindow()==h)) && LOWORD(l)==HTCLIENT){ SetCursor(NULL); return TRUE; } break;
   }
@@ -334,7 +334,7 @@ static void win_thread(void* arg){ (void)arg;
   RECT r={0,0,1280,720}; AdjustWindowRect(&r,WS_OVERLAPPEDWINDOW,FALSE);
   if(g_background){
     /* SWR_BACKGROUND=1 (automated tests): a shown window placed past the right edge of all monitors, never
-       activated, no taskbar or Alt+Tab entry. it still renders and takes posted keys, and F8 captures read the
+       activated, no taskbar or Alt+Tab entry. it still renders and takes posted keys, and F7 captures read the
        game's own image, so tests work while someone uses the PC */
     int x=GetSystemMetrics(SM_XVIRTUALSCREEN)+GetSystemMetrics(SM_CXVIRTUALSCREEN)+200, y=GetSystemMetrics(SM_YVIRTUALSCREEN);
     g_hwnd=CreateWindowExA(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,"SwitchRecompWnd",g_title,WS_OVERLAPPEDWINDOW,x,y,r.right-r.left,r.bottom-r.top,NULL,NULL,hi,NULL);

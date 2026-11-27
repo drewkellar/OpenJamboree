@@ -1,7 +1,7 @@
 /* SwitchRecomp - Copyright 2026 MZ Labs
    Licensed under the GNU Affero General Public License v3.0, see LICENSE.txt and NOTICE.txt.
    Forks and derived works have to keep the credit to SwitchRecomp by MZ Labs and the startup screen. */
-/* F7 recorder. H.264/mp4 through Media Foundation (uses QuickSync/NVENC/VCE when it's there). frames come in as
+/* F6 recorder. H.264/mp4 through Media Foundation (uses QuickSync/NVENC/VCE when it's there). frames come in as
    NV12 already converted on the GPU, we just copy them into an MF buffer and a separate thread does the encoding
    so the game thread never waits on it */
 #define COBJMACROS

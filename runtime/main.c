@@ -55,7 +55,7 @@ static u64 g_t0;
 
 u64 g_t0_ns(void){ return g_t0; }
 
-/* guest clock. normally it's the same as real time. in smooth recording mode (F7) it runs slower so every frame
+/* guest clock. normally it's the same as real time. in smooth recording mode (F6) it runs slower so every frame
    takes about 1/recording_fps of guest time, that way the video stays smooth even when the PC can't keep up. it
    never stops so guest timeouts still fire, and vsync follows it too */
 static int g_vt_on, g_rec_active;
@@ -330,7 +330,7 @@ static const IniOpt INI_AUDIO[]={
   {"audio_slowdown","1","1 = slow live audio smoothly when the PC cannot keep up; retain every queued sample (F1)"},
   {NULL,NULL,NULL}};
 static const IniOpt INI_REC[]={
-  {"smooth_recording","1","1 = F7 recordings are always smooth: the game runs in slow motion while recording\n;   if the PC can't keep up, but the exported video plays at normal speed with no stutter"},
+  {"smooth_recording","1","1 = F6 recordings are always smooth: the game runs in slow motion while recording\n;   if the PC can't keep up, but the exported video plays at normal speed with no stutter"},
   {"recording_fps","60","FPS of the exported video (constant)"},
   {NULL,NULL,NULL}};
 
@@ -360,7 +360,8 @@ void ini_write(void){
   fprintf(f,";  Edit a value and save: most settings apply live while the game runs\n");
   fprintf(f,";  (docked, language, fullscreen and frame generation apply on restart).\n");
   fprintf(f,";  Keys in game: F1 help, F3 screenshot, F4 FPS limit, F5 trace,\n");
-  fprintf(f,";  F7 record video, F8 full-res screenshot, F9 fast-forward (OpenGL), F11 fullscreen.\n");
+  fprintf(f,";  F6 record video, F7 full-res screenshot, F8 fast-forward (OpenGL).\n");
+  fprintf(f,";  F9 Pro Controller / one Joy-Con, F11 fullscreen.\n");
   fprintf(f,"; =====================================================================\n");
   for(int s=0;INI_SECS[s].title;s++){
     fprintf(f,"\n[%s]\n",INI_SECS[s].title);

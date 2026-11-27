@@ -129,7 +129,8 @@ Regression checks (builds, unit tests, homebrew GPU tests, games) are in REGRESS
 | `captures/traces/N/` | game folder, after **F5** | One frame, fully listed (section 5) |
 | `captures/rt_*.ppm`, `screenshot_*.ppm` | after F5 | The render targets and the presented image |
 
-Useful keys in game: **F5** trace of the next frame, **F1** settings, **F7** record video, **F11** fullscreen.
+Press **F5** for a trace of the next frame, **F6** to record on Windows, **F7** for a full-resolution PNG, or
+**F8** to cycle fast-forward on OpenGL. **F1** opens settings and **F11** toggles fullscreen.
 
 Useful `.ini` options (the game's `.ini` lists them all with comments): `shadows`, `resolution`, `loop_limit`,
 `driver_exclusive`, `shader_thread`, `shader_process`, `memory_gb`, `log=2` (verbose), `diag=1`.
