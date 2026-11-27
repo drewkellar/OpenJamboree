@@ -528,6 +528,7 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
 9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, and a release check that
    no file in the package came from the dump. `CHANGELOG.txt` has an OpenJamboree section, kept current per change.
+10. Fast-forward (F9: 1x/2x/4x) for playtesting: plan and findings in `docs/handoff/fast-forward.md`.
 
 ## 9. Board coverage
 
