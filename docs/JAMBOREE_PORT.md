@@ -326,6 +326,23 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - Result: after F6, Tilt-a-Golf starts without the prompt. A drops the ball, the right stick tilts the board and the
   ball rolls. Menus and an ordinary minigame (Lumber Tumble) work in this mode with the normal keys.
 
+### Bug 20: the game froze when the audio device stopped taking sound (fixed)
+- Found in the 2026-11-26 minigame sweep: during Blame It on the Crane, about 86 minutes into the session, the frame
+  rate fell from 60 to 17 and 8 FPS and then stopped. The log's hang report: "the GPU finished everything sent to
+  it (the stop is on the CPU side)"; the main thread waited on a light event that thread 86 signals, and thread 86
+  waited on the sound system. A native stack dump (`_work/stackdump.exe` + `resolve.py`) of the frozen process showed
+  the game's audio thread in `swr_audio_submit_at` (from `audren_update`), sleeping until the output queue had room,
+  and the output worker in `host_write`, waiting for the waveOut device to hand back a buffer.
+- Cause: the Windows audio device stopped consuming buffers (the likely trigger is the audio endpoint going away
+  with no one at the PC, such as a monitor with HDMI/DP audio going to sleep). Both waits had no limit, so the
+  device's stall stopped the audio thread and with it the whole game.
+- Fix (`audio.c`): a buffer the device holds 250 ms gets `waveOutReset`; still held 500 ms in, or 200 ms of write
+  errors, closes the device and opens the default one again. With no device, audio is dropped and a new one is tried
+  every 2 s. The game's side waits at most 100 ms without progress, then drops the rest of that packet. Each step
+  logs an `audio:` warning.
+- Result: `SWR_AUDIO_STALL_AT=50` (pauses the device after 50 s, a stand-in for a dead endpoint) logs "stopped
+  taking buffers, reset" 0.3 s later and the game stays at 60 FPS. The old code waits forever at that point.
+
 ### Build fixes (the source as shipped didn't build with the bundled GCC 16)
 - `plat.c`: missing `#include <math.h>`; `svc_core.c`: `ipc_warn_once` used before its declaration.
 - `plat.c`: prebuilt `vp9/win/libvpx.a` calls `_setjmp`, which the UCRT import library no longer exports; a jump shim
@@ -381,6 +398,7 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_SHOT8_FLAG=N` | while a file `burst.flag` exists in the game folder, an F8 capture every N presents (a test script creates it when OCR sees the screen it wants) |
 | `SWR_TRACE_EVERY=N[@s[,max]]` | an F5 trace every N presents from s seconds, up to max (default 20) |
 | (F5 trace) | line draws also list the line widths, the shader stage registers and the first 16 vertices' float attributes; every draw lists the provoking vertex |
+| `SWR_AUDIO_STALL_AT=<s>` | test: pause the Windows audio device once after s seconds, to check that a stalled device doesn't freeze the game (bug 20) |
 | `SWR_SINGLE_JOYCON=1` / `SWR_NO_SINGLE_JOYCON=1` | start controller 1 as one Joy-Con / never switch to it (bug 19) |
 | `SWR_TRACE_FN_EVERY=N` | with `SWR_TRACE_FN`, also log every Nth call with the 0x60 bytes its first argument points to (sensor states). `SWR_TRACE_FN` now also logs each new return address after the first 8 calls |
 | (log) `hid:` | controller applet calls with their arguments and caller chain, single Joy-Con mode on/off, Joy-Con hold type |

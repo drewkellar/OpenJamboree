@@ -72,13 +72,33 @@ static int host_open(void){ sdl_lib=dlopen("libSDL2-2.0.so.0",RTLD_NOW|RTLD_LOCA
   sdl.pause(device,0); LOG("audio: SDL2, 48000 Hz stereo PCM16 enabled\n"); return 1;
 }
 #endif
+/* a device that stops taking buffers (its endpoint went away: a monitor with HDMI/DP audio going to sleep, a headset
+   unplugged, a driver hang) must not stop the game. The game's audio thread waits for queue space and the rest of
+   the game waits for it, so a stalled device froze everything. A buffer held 250 ms gets the device reset; if
+   that doesn't free it the device is closed and opened again (the default device may have changed). Without a
+   device, audio is dropped and a new one is tried every 2 s */
+static u64 host_retry_at; static unsigned host_stalls;
+static void host_reopen(const char* why){
+  device_close(); host_ready=host_open(); host_stalls++;
+  if(host_stalls<=20) WARN("audio: output device %s; %s\n",why,host_ready? "reopened" : "none available, dropping audio and retrying every 2 s");
+  host_retry_at=plat_ns()+2000000000ull; }
 static void host_write(const float* samples,unsigned frames){
   if(!frames || frames>SWR_AUDIO_FRAMES) return;
-  pm_lock(&host_lock); if(!host_tried){ host_tried=1; host_ready=host_open(); }if(!host_ready){ pm_unlock(&host_lock); return; }
+  pm_lock(&host_lock); if(!host_tried){ host_tried=1; host_ready=host_open(); }
+  if(!host_ready && plat_ns()>=host_retry_at){ host_ready=host_open(); host_retry_at=plat_ns()+2000000000ull; if(host_ready) WARN("audio: output device available again\n"); }
+  if(!host_ready){ pm_unlock(&host_lock); return; }
 #if defined(_WIN32)
   unsigned k=host_next; WAVEHDR* h=&hdr[k];
-  /* the output worker holds on to this packet until the device has a free slot */
-  while((h->dwFlags&WHDR_INQUEUE) && !(h->dwFlags&WHDR_DONE) && !audio_stopping()) plat_sleep_ns(1000000);
+  /* SWR_AUDIO_STALL_AT=<s>: test, pause the device once after s seconds (a device that stops taking buffers) */
+  { static double at=-2; static u64 t0; if(at<-1){ const char* e=getenv("SWR_AUDIO_STALL_AT"); at= e? atof(e) : -1; t0=plat_ns(); }
+    if(at>=0 && (double)(plat_ns()-t0)/1e9>=at){ at=-1; waveOutPause(device); WARN("audio: test stall, device paused\n"); } }
+  /* the output worker holds on to this packet until the device has a free slot, for a while */
+  { u64 t0=plat_ns(); int reset=0;
+    while((h->dwFlags&WHDR_INQUEUE) && !(h->dwFlags&WHDR_DONE) && !audio_stopping()){
+      u64 el=plat_ns()-t0;
+      if(!reset && el>250000000ull){ reset=1; waveOutReset(device); if(host_stalls<=20) WARN("audio: output device stopped taking buffers, reset\n"); continue; }
+      if(reset && el>500000000ull){ host_reopen("still stalled after a reset"); pm_unlock(&host_lock); return; }
+      plat_sleep_ns(1000000); } }
   if(audio_stopping()){ pm_unlock(&host_lock); return; }
   i16* dst=host_pcm[k];
 #else
@@ -96,6 +116,7 @@ static void host_write(const float* samples,unsigned frames){
   unsigned errors=0;
   while((r=waveOutWrite(device,h,sizeof *h))!=0 && !audio_stopping()){
     if(!errors++) WARN("audio: device write error %u, retaining packet until the device accepts it\n",(unsigned)r);
+    if(errors>=40){ host_reopen("rejects writes"); pm_unlock(&host_lock); return; }   /* 200 ms */
     plat_sleep_ns(5000000);
   }
   if(!r) host_next=(k+1)%HOST_N;
@@ -147,12 +168,17 @@ void swr_audio_submit_at(const float* samples,unsigned frames,u64 sample_end){
 #endif
   if(!host_ready) return;
   if(!__atomic_load_n(&worker_running,__ATOMIC_ACQUIRE)){ host_write(samples,frames); return; }
-  unsigned done=0;
+  /* waits for queue space, but never more than 100 ms without progress: the rest of the packet is dropped (the
+     output side is stalled, see host_write) instead of holding the game's audio thread */
+  unsigned done=0; u64 since=plat_ns();
   while(done<frames && !audio_stopping()){
     pm_lock(&queue_lock);
     if(audio_stopping()){ pm_unlock(&queue_lock); break; }
     unsigned accepted=swr_aq_push(&output_queue,samples+done*2,frames-done); pm_unlock(&queue_lock);
-    done+=accepted; if(done<frames) plat_sleep_ns(1000000);
+    done+=accepted; if(accepted) since=plat_ns();
+    if(done<frames){
+      if(plat_ns()-since>100000000ull){ static unsigned drops; if(drops++<10) WARN("audio: output queue full for 100 ms, dropping %u frames\n",frames-done); break; }
+      plat_sleep_ns(1000000); }
   }
 }
 #define NV 4096
