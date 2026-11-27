@@ -5,6 +5,8 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 
 ## 1. Status
 
+Last updated 2026-11-27 (after PR #8). Keep this table current with every change (see `AGENTS.md`).
+
 | Area | State |
 | --- | --- |
 | Boot, loading screen | works |
@@ -15,11 +17,12 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 | Pressing L+R at the title | **fixed** (bug 4): save is created, player-count screen, Party Plaza hub |
 | Saves | `bqSaveData`, `bqSaveData2` written to `<name>_data/save/user/`; intro skippable (+) once a save exists |
 | Menus | player count, character select (3D preview), Party Plaza hub (walk, talk, Toad's tutorial), balloon tour and mode list (`menu01.nro`), party rules, opponent/board setup |
-| Boards | Mega Wiggler's Tree Party (`bd01.nro`) loads and plays: intro, dice/items/board menu, HUD, CPU turns, 55-60 FPS |
-| Minigames | work: Sandwiched (played to the result, back to the board, turn 2, autosave); practice previews of Granite Getaway, Pickin' Produce (2 vs 2), Lumber Tumble |
+| Boards | all seven load and play their first turn (section 9). Mega Wiggler's Tree Party (`bd01.nro`) plays further: intro, dice/items/board menu, HUD, CPU turns, minigame and back, autosave, 55-60 FPS. Full 10-turn parties not played through yet |
+| Minigames | **107 of 112** played from practice to the results in Minigame Bay (section 10); the other 5 are locked on the test save. Sandwiched also played inside a party, back to the board |
+| Motion minigames (25) | **fixed** (bug 19): play as one Joy-Con with F6; right stick tilts, O shakes. Feel still to be checked by the owner (M10) |
 | New party | works: party rules tutorial (scroll with the D-pad), board and settings, turn order, first turn, autosave |
 | Pause menu on the board | works (Resume, exit to the balloon or plaza with its confirmation) |
-| Load hitches | the tested Mega Wiggler resume route stayed below 1.5 s per frame gap. Other boards showed multi-second gaps on first load (board coverage below) |
+| Load hitches | open: the tested Mega Wiggler resume route stayed below 1.5 s per frame gap. Other boards showed 2.7-7.2 s gaps on first entry (section 9); small spikes during ordinary play |
 | Save dates | **fixed** (bug 6): parties were dated 12/31/1969 |
 | Mode list backdrop | not reproduced: the gray panel seen there is the game's own Offline Data dialog |
 | Reading the user's dump in place | works (`game_dump=`), nothing copied |
@@ -27,11 +30,14 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 | Characters missing (Mario in character select and on the board) | **fixed** with bug 7: all previews render |
 | Title movie / attract cutscene choppy | **fixed** (bug 8): the video texture now updates every decoded picture |
 | Board spaces | **fixed** (bugs 9 and 10): the spaces along the paths show, near and far |
-| Input | keyboard via window messages, XInput controllers (by label: A confirms; `pad_buttons=1` for Switch positions) |
+| Results star graph | **fixed** (bug 17) |
+| Minigame Bay sea | **fixed** (bug 18): no more black stripes |
+| Input | keyboard via window messages, XInput controllers (by label: A confirms; `pad_buttons=1` for Switch positions); F6 one Joy-Con mode. Hold inputs on a real pad not checked yet |
 | Button prompts with an Xbox pad | **fixed** (bug 11): the four-dot face-button icons point at the Xbox button to press |
-| Minigame select background | **fixed** (bug 12, workaround): the board shows behind the list instead of black |
+| Minigame select background | worked around (bug 12): the board shows behind the list instead of black; the real cause is open |
 | Esc | no longer quits on a tap: hold it 1.5 s (the title bar says so) |
-| Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); not checked by ear |
+| Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); a stalled output device no longer freezes the game (bug 20). Not checked by ear |
+| Owner checks | M1-M10 pending against the console (section 7) |
 
 Fastest path to a board with a save (keys): + skips the intro, Q+E at the title, A through the plaza, then in the
 balloon pick Mario Party; ~2.5 min from launch. With `_work/run.ps1`: `-Keys` = `12:0x0D@500,22:0x51+0x45@500,
@@ -508,17 +514,20 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 | M10 | Motion minigames | with F6 (one Joy-Con) the right stick tilts and O shakes; do the 25 motion games feel playable? | pending |
 
 ## 8. Next steps
-1. Board: a waiting player (Mario, on a space further down the path) looked see-through. Check whether that's the
+1. Owner checks M1-M10 (section 7): fold the results back into the playtest log and fix what differs.
+2. First-entry board stalls (2.7-7.2 s, section 9) and small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and
+   match frame timestamps to asset loads. For the reproducible board load hitch, investigate the time outside the
+   GPU-thread categories before tuning texture work.
+3. Full 10-turn parties through the results screen, and board-specific events on all seven boards.
+4. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
+5. Board: a waiting player (Mario, on a space further down the path) looked see-through. Check whether that's the
    game's own fade or a rendering bug.
-2. Plaza overview: the paving around the fountain looks noisy from far away (reported; likely the texture's lower
+6. Plaza overview: the paving around the fountain looks noisy from far away (reported; likely the texture's lower
    mips, ASTC decoded to BC3 on GPUs without ASTC). Not reproduced yet: needs the first-visit plaza tour.
-3. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
-4. Small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and match frame timestamps to asset loads. For the
-   reproducible board load hitch, investigate the time outside the GPU-thread categories before tuning texture work.
-5. More minigames, board-specific events and full 10-turn parties through the results screen.
 7. Hold-to-start ("-/+ Start!" in minigame practice) and other hold inputs with a real pad.
 8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
-9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, add CHANGELOG lines.
+9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, and a release check that
+   no file in the package came from the dump. `CHANGELOG.txt` has an OpenJamboree section, kept current per change.
 
 ## 9. Board coverage
 

@@ -81,8 +81,10 @@ notice) that the recompiler and every recompiled game show when they start.
               on-screen button icons follow it. pad_buttons=1 maps by position.
     Keyboard: Arrows = D-Pad, WASD = left stick, IJKL = right stick,
               X/Space = A, Z = B, C = X, V = Y, Q = L, E = R, 1 = ZL, 3 = ZR,
-              Enter = +, Backspace = -
+              Enter = +, Backspace = -, U / O = left / right stick click
     F1 help   F3 screenshot   F4 FPS limit 60 / unlimited   F5 diagnostic trace
+    F6 player 1: Pro Controller / one Joy-Con (motion minigames: right stick
+       tilts, O shakes; saved as single_joycon= in the .ini)
     F7 record .mp4 video   F8 full resolution PNG   F11 or Alt+Enter fullscreen
     Hold Esc (1.5 s) to quit
 
