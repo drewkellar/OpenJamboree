@@ -143,6 +143,19 @@ Intel's Windows driver is where most freezes come from (driver exclusive mode, t
 
 ---
 
+## Xbox board and balloon controls
+
+Use Windows OpenGL with `pad_buttons=0`. In the balloon, highlight Mario Party and another unlocked destination.
+Each destination should show the bottom dot and open when you press A. Return from a board to check
+the highlighted confirm icon too. With `pad_buttons=1`, the right dot should be filled and Xbox B
+should confirm. Re-enter the board after changing layouts.
+
+On the board turn menu, check the bottom dot on Dice Block, the left dot on Look Around, and the top dot
+on Board. Test X and B before rolling. X opens Look Around, B returns from Look Around, and pressing B
+from the turn menu leaves it open. Y opens Board. Return to the turn menu, highlight Dice Block, and press
+A to bring up the dice. A should also confirm Items when that row is selected. In a background run, post
+X/Space, C, V, and Z for the guest A, X, Y, and B inputs.
+
 ## When something breaks
 
 1. **Find the change.** Most fixes have a switch that turns them off (`grep -n 'getenv("SWR_' runtime/*.c`). Run

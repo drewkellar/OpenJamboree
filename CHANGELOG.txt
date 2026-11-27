@@ -3,6 +3,8 @@ OpenJamboree (Super Mario Party Jamboree on Switch2Recomp 0.4.1) - unreleased
 Newest first. Every change adds its line here (see AGENTS.md); details, evidence and causes are in
 docs/JAMBOREE_PORT.md under the bug number.
 
+- Xbox board controls use A for Dice Block, X for Look Around, and Y for Board, with matching OpenGL prompts (bug 22).
+- The balloon destination prompt highlights the Xbox A position with the default layout (bug 22).
 - The README explains how to identify an older runtime when testing fast-forward.
 - Playtest shortcuts now use F6 for video, F7 for full-resolution PNGs, and F9 for one Joy-Con.
 - Press F8 on OpenGL to cycle the fast-forward target between 1x, 2x and 4x for playtesting.

@@ -425,7 +425,7 @@ void video_poll(void){
     }
     rx=(g_mouse_invert&1)?-g_mouse_rx:g_mouse_rx; ry=(g_mouse_invert&2)?-g_mouse_ry:g_mouse_ry;
   }
-  { extern int g_pad_icons_xbox; g_pad_icons_xbox=!g_pad_by_position; }   /* the on-screen button diamonds follow the mapping (gpu_gl.c) */
+  __atomic_store_n(&g_pad_icons_xbox,!g_pad_by_position,__ATOMIC_RELAXED);
   if(xget && focused){
     for(DWORD i=0;i<4;i++){ XST s; if(xget(i,&s)) continue; XGP* g=&s.Gamepad; WORD x=g->wButtons;
       /* by label (default): xbox A = A (confirm), B = B, X = X, Y = Y. pad_buttons=1 maps by position like a Switch
