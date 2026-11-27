@@ -71,12 +71,37 @@ static void kobj_signal_nl(KObj* o){ for(int i=0;i<o->nwait;i++) wake(o->waiters
 
 void kobj_signal(KObj* o){ pm_lock(&g_klock); kobj_signal_nl(o); pm_unlock(&g_klock); }
 
-/* call with the lock held. 1 = woken, 0 = timeout */
+typedef struct TimedWait TimedWait;
+struct TimedWait {
+  PCond* cv;
+  TimedWait *next, **link;   /* previous next pointer, or the list head */
+};
+static TimedWait* timed_waits;
+
+/* Call with the lock held. A zero deadline means an infinite wait. */
+static int sleep_until_nl(KThread* t, u64 end){
+  if(!end){
+    while(!t->woken) pc_wait(&t->cv,&g_klock,-1);
+    return 1;
+  }
+
+  TimedWait wait={&t->cv,timed_waits,&timed_waits};
+  if(wait.next) wait.next->link=&wait.next;
+  timed_waits=&wait;
+  while(!t->woken){
+    u64 now=swr_wait_clock();
+    if(now>=end) break;
+    u64 speed=(u64)swr_speed();
+    pc_wait(&t->cv,&g_klock,(i64)((end-now+speed-1)/speed));
+  }
+  *wait.link=wait.next;
+  if(wait.next) wait.next->link=wait.link;
+  return t->woken;
+}
+
 static int sleep_nl(KThread* t, i64 timeout){
-  if(timeout<0){ while(!t->woken) pc_wait(&t->cv,&g_klock,-1); return 1; }
-  u64 end=plat_ns()+(u64)timeout;
-  while(!t->woken){ u64 now=plat_ns(); if(now>=end) return 0; pc_wait(&t->cv,&g_klock,(i64)(end-now)); }
-  return 1; }
+  return sleep_until_nl(t,timeout<0? 0 : swr_wait_clock()+(u64)timeout);
+}
 
 /* ============================================================ events */
 static int ev_sig(KObj* o){ return ((KEvent*)o)->signaled; }
@@ -92,6 +117,13 @@ void kevent_clear(KEvent* e){ pm_lock(&g_klock); e->signaled=0; pm_unlock(&g_klo
 
 /* ============================================================ threads */
 static KThread* g_threads[256]; static int g_nthreads;
+
+/* Wake condition variables to recalculate deadlines without completing the guest waits. */
+void kernel_speed_changed(void){
+  pm_lock(&g_klock);
+  for(TimedWait* wait=timed_waits;wait;wait=wait->next) pc_signal(wait->cv);
+  pm_unlock(&g_klock);
+}
 KThread* kthread_cur(void){ return (KThread*)tls_thread; }
 
 static void kthread_set(void* t){ tls_thread=t; }
@@ -356,15 +388,14 @@ static u32 svc_wait_sync(KThread* t, u64 hptr, u32 n, i64 timeout, u32* out_idx)
   pm_lock(&g_klock);
   for(u32 i=0;i<n;i++){ objs[i]=h_get_nl(hs[i]); if(!objs[i] || !objs[i]->is_signaled){ pm_unlock(&g_klock); if(!objs[i]){ static u32 nw; if(nw++<20 || !(nw&0xFFFF)) WARN("WaitSynchronization: invalid handle %x (%u times)\n",hs[i],nw); } return R_BADHANDLE; } }
   if(t->cancel){ t->cancel=0; pm_unlock(&g_klock); return R_CANCELLED; }
-  u64 end= timeout<0? 0 : plat_ns()+(u64)timeout;
+  u64 end=timeout<0? 0 : swr_wait_clock()+(u64)timeout;
   for(;;){
     for(u32 i=0;i<n;i++) if(objs[i]->is_signaled(objs[i])){ *out_idx=i; pm_unlock(&g_klock); return 0; }
-    if(timeout==0){ pm_unlock(&g_klock); return R_TIMEOUT; }
-    i64 rem=-1; if(timeout>0){ u64 now=plat_ns(); if(now>=end){ pm_unlock(&g_klock); return R_TIMEOUT; } rem=(i64)(end-now); }
+    if(timeout==0 || (end && swr_wait_clock()>=end)){ pm_unlock(&g_klock); return R_TIMEOUT; }
     /* n==0 is a plain sleep that CancelSynchronization ends (nn::os MultiWait with only user objects) */
     t->woken=0; t->wait_kind=1; t->wait_name= n? objs[0]->name : "sleep"; t->wait_timeout=timeout;
     for(u32 i=0;i<n;i++) waiter_add(objs[i],t);
-    sleep_nl(t,rem);
+    sleep_until_nl(t,end);
     for(u32 i=0;i<n;i++) waiter_del(objs[i],t);
     t->wait_kind=0;
     if(t->cancel){ t->cancel=0; pm_unlock(&g_klock); return R_CANCELLED; }
@@ -861,7 +892,17 @@ static void swr_svc_(CPU* c, u32 imm){
     if(n->state==0) kthread_start(n); x[0]=0; return; }
   case 0x0A: svc_exit_thread(t); return;
   case 0x0B: { i64 ns=(i64)x[0]; t->sleep_lr=x[30]; t->sleep_n++; memcpy(t->sleep_x,x,sizeof t->sleep_x);
-    if(ns<=0) plat_yield(); else plat_sleep_ns(ns); return; }
+    if(ns<=0) plat_yield(); else {
+      /* Keep the high-resolution timer for short sleeps. Recheck long sleeps across speed changes. */
+      u64 now=swr_wait_clock(), end=now+(u64)ns;
+      while(now<end){
+        u64 speed=(u64)swr_speed();
+        u64 left=(end-now+speed-1)/speed;
+        plat_sleep_ns((i64)(left>16666667ull? 16666667ull : left));
+        now=swr_wait_clock();
+      }
+    }
+    return; }
   case 0x0C: { KThread* n=(KThread*)h_get_type((u32)x[1],KO_THREAD); if(!n){ x[0]=R_BADHANDLE; return; } x[0]=0; x[1]=(u32)n->prio; return; }
   case 0x0D: { KThread* n=(KThread*)h_get_type((u32)x[0],KO_THREAD); if(!n){ x[0]=R_BADHANDLE; return; } n->prio=(int)(u32)x[1]; x[0]=0; return; }
   case 0x0E: { KThread* n=(KThread*)h_get_type((u32)x[2],KO_THREAD); if(!n){ x[0]=R_BADHANDLE; return; } x[0]=0; x[1]=(u32)n->ideal; x[2]=n->affinity; return; }

@@ -112,9 +112,23 @@ own menu, not a save state. For each game: does it reach the scene, does it look
 | GBA (Nintendo Switch Online) | any | boot | the Game Boy Advance menu shows, not black, not 2 s per frame |
 | Celeste, Brawlhalla | any | boot and first level | sound plays (audout) |
 | A Xenoblade title | any | boot | no out-of-memory crash (automatic extra memory) |
-| Any game | any | F5, F7, F1 | F5 writes a trace, F7 records with sound, F1 opens the settings |
+| Any game | any | F5, F6, F7, F1 | F5 writes a trace, F6 records with sound on Windows, F7 saves a PNG, F1 opens the settings |
 
 Compare against the previous runtime when something looks different: same scene, both screenshots side by side.
+
+### OpenJamboree fast-forward (Windows/OpenGL)
+
+Use an isolated replay of the same save for each run and link the existing dump in place. Run
+`_work/run.ps1 -GameDir <replay>` in its default background mode with `SWR_SPEED` set to 1, 2 and 4 in turn.
+Compare elapsed time between the same gameplay landmarks to measure the speed gain. In the `performance:`
+log line, FPS counts images the game submits for display per real second. Window swaps/s counts updates sent
+to the window. Startup and shader loading can affect these measurements.
+
+In a separate run, post F8 (`0x77`) at least three times and check that it returns to 1x. Take F5 and F7
+captures at a faster speed. Start F6 recording from fast-forward, press F8 during recording, then stop with F6
+and confirm that the game is still at 1x. On Windows, press F9 to switch to one Joy-Con and back. Exercise
+CPU board turns and an active minigame at the faster settings. The background runner mutes audio, so check
+audible transitions separately.
 
 ## Level 4: Intel on Windows
 

@@ -5,7 +5,7 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 
 ## 1. Status
 
-Last updated 2026-11-27 (after PR #8). Keep this table current with every change (see `AGENTS.md`).
+Last updated 2026-11-27 (owner-confirmed fast-forward). Keep this table current with every change (see `AGENTS.md`).
 
 | Area | State |
 | --- | --- |
@@ -19,7 +19,8 @@ Last updated 2026-11-27 (after PR #8). Keep this table current with every change
 | Menus | player count, character select (3D preview), Party Plaza hub (walk, talk, Toad's tutorial), balloon tour and mode list (`menu01.nro`), party rules, opponent/board setup |
 | Boards | all seven load and play their first turn (section 9). Mega Wiggler's Tree Party (`bd01.nro`) plays further: intro, dice/items/board menu, HUD, CPU turns, minigame and back, autosave, 55-60 FPS. Full 10-turn parties not played through yet |
 | Minigames | **107 of 112** played from practice to the results in Minigame Bay (section 10); the other 5 are locked on the test save. Sandwiched also played inside a party, back to the board |
-| Motion minigames (25) | **fixed** (bug 19): play as one Joy-Con with F6; right stick tilts, O shakes. Feel still to be checked by the owner (M10) |
+| Fast-forward | The owner confirmed fast-forward works on the updated OpenGL runtime. Heavy scenes in the opening fell short of the targets |
+| Motion minigames (25) | **fixed** (bug 19): play as one Joy-Con with F9; right stick tilts, O shakes. Feel still to be checked by the owner (M10) |
 | New party | works: party rules tutorial (scroll with the D-pad), board and settings, turn order, first turn, autosave |
 | Pause menu on the board | works (Resume, exit to the balloon or plaza with its confirmation) |
 | Load hitches | open: the tested Mega Wiggler resume route stayed below 1.5 s per frame gap. Other boards showed 2.7-7.2 s gaps on first entry (section 9); small spikes during ordinary play |
@@ -32,12 +33,12 @@ Last updated 2026-11-27 (after PR #8). Keep this table current with every change
 | Board spaces | **fixed** (bugs 9 and 10): the spaces along the paths show, near and far |
 | Results star graph | **fixed** (bug 17) |
 | Minigame Bay sea | **fixed** (bug 18): no more black stripes |
-| Input | keyboard via window messages, XInput controllers (by label: A confirms; `pad_buttons=1` for Switch positions); F6 one Joy-Con mode. Hold inputs on a real pad not checked yet |
+| Input | keyboard via window messages, XInput controllers (by label: A confirms; `pad_buttons=1` for Switch positions); F9 one Joy-Con mode. Hold inputs on a real pad not checked yet |
 | Button prompts with an Xbox pad | **fixed** (bug 11): the four-dot face-button icons point at the Xbox button to press |
 | Minigame select background | worked around (bug 12): the board shows behind the list instead of black; the real cause is open |
 | Esc | no longer quits on a tap: hold it 1.5 s (the title bar says so) |
 | Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); a stalled output device no longer freezes the game (bug 20). Not checked by ear |
-| Owner checks | M1-M10 pending against the console (section 7) |
+| Owner checks | M1-M10 pending. The owner confirmed M11 on the updated runtime (section 7) |
 
 Fastest path to a board with a save (keys): + skips the intro, Q+E at the title, A through the plaza, then in the
 balloon pick Mario Party; ~2.5 min from launch. With `_work/run.ps1`: `-Keys` = `12:0x0D@500,22:0x51+0x45@500,
@@ -309,7 +310,7 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - Result: the sea renders clean on the pier and behind the minigame list. The log notes the first stencil views
   (`gpu: depth-stencil ... read as stencil`).
 
-### Bug 19: motion minigames could not be started (fixed, F6)
+### Bug 19: motion minigames could not be started (fixed)
 - Found in the 2026-11-26 Minigame Bay sweep: Tilt-a-Golf, Night Lights, Hammer It Home, Twist and Sort, Shuttle
   Scuttle, Tiny Triathlon and Pickax Dash (the second row of the "All" list) answer Play with "Use one Joy-Con to play
   motion minigames. Change controller settings?". Yes and No both returned to the minigame card.
@@ -323,13 +324,13 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   device type right Joy-Con, single assignment, the right-connected attribute, its own button LIFO and six-axis LIFO,
   and `IsSixAxisSensorAtRest` false. The six-axis state follows the right stick (orientation matrix, gravity,
   angular velocity and angle, 1/60 s steps), and the right stick button adds a shake. The handheld sensor gets the
-  same motion. Turned on by F6 or `single_joycon=1`, by `SWR_SINGLE_JOYCON=1`, by `SetNpadJoyAssignmentModeSingle`
-  on controller 1, or when the game allows only single Joy-Con styles; `SetNpadJoyAssignmentModeDual` and F6 turn
+  same motion. Turned on by F9 or `single_joycon=1`, by `SWR_SINGLE_JOYCON=1`, by `SetNpadJoyAssignmentModeSingle`
+  on controller 1, or when the game allows only single Joy-Con styles; `SetNpadJoyAssignmentModeDual` and F9 turn
   it off. `SWR_NO_SINGLE_JOYCON=1` disables it.
 - Two things the first try got wrong, kept here: switching on every applet call that allowed single mode left the
   title screen waiting for L+R (a right Joy-Con has none: SL/SR now stand in). Pushing the handheld sensor twice per
   sample (at rest, then moving, same sampling number) froze the game at boot; it gets one entry per sample now.
-- Result: after F6, Tilt-a-Golf starts without the prompt. A drops the ball, the right stick tilts the board and the
+- Result: after switching to one Joy-Con, Tilt-a-Golf starts without the prompt. A drops the ball, the right stick tilts the board and the
   ball rolls. Menus and an ordinary minigame (Lumber Tumble) work in this mode with the normal keys.
 
 ### Bug 20: the game froze when the audio device stopped taking sound (fixed)
@@ -349,6 +350,17 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - Result: `SWR_AUDIO_STALL_AT=50` (pauses the device after 50 s, a stand-in for a dead endpoint) logs "stopped
   taking buffers, reset" 0.3 s later and the game stays at 60 FPS. The old code waits forever at that point.
 
+### Bug 21. The installed runtime still used the old hotkeys (resolved)
+
+- The owner reported that fast-forward did not engage and heard lower-pitched audio after trying the keys.
+  The log identified a November 25 build, recorded screenshots from F8, and showed smooth recording starting
+  during the session. No speed changes were logged.
+- The branch had the new shortcuts, but the prior background tests used rebuilt executables in isolated replay
+  folders. The installed game still launched the older runtime. Its F7 shortcut could start smooth recording,
+  which can slow the game clock and live audio when the host falls behind.
+- Rebuilt and installed the branch runtime with a rollback copy. Verified the installed executable in an isolated
+  background replay. F8 logged 2x, 4x and 1x in order, and F7 saved two full-resolution captures.
+
 ### Build fixes (the source as shipped didn't build with the bundled GCC 16)
 - `plat.c`: missing `#include <math.h>`; `svc_core.c`: `ipc_warn_once` used before its declaration.
 - `plat.c`: prebuilt `vp9/win/libvpx.a` calls `_setjmp`, which the UCRT import library no longer exports; a jump shim
@@ -365,12 +377,17 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   `exefs/main`, a folder picker asks for the dump (3 tries, then a clear error). The dump's `main.npdm` program id
   must match the recompiled code's title id.
 - `switchrecomp.py --link`: recompile without copying exefs/romfs (5.4 GB), writes `game_dump=` into the `.ini`.
-- Motion minigames (bug 19): **F6** switches controller 1 between a Pro Controller and one Joy-Con (R) held on its
+- Motion minigames (bug 19): **F9** switches controller 1 between a Pro Controller and one Joy-Con (R) held on its
   own, saved as `single_joycon=0/1` in the `.ini`. As one Joy-Con, the right stick (IJKL keys, or the mouse in mouse
   mode) tilts the controller up to about 60 degrees and the right stick button (**O** on the keyboard) shakes it.
   L/R press the Joy-Con's SL/SR, and the d-pad (arrow keys) moves its stick. When the game holds it sideways (menus,
-  most minigames) the face buttons are mapped to where they sit on a sideways Joy-Con, so A stays A. F1 lists F6 and
+  most minigames) the face buttons are mapped to where they sit on a sideways Joy-Con, so A stays A. F1 lists F9 and
   the new **U/O** stick-click keys.
+
+- **F8** cycles the OpenGL fast-forward target between 1x, 2x and 4x. The window title shows the target. The runtime starts at 1x
+  by default. The setting lasts for the session. F6 returns to 1x and locks the speed until recording ends.
+  Faster speeds increase the live audio pitch. Guest rendering still runs on every game frame, while OpenGL
+  window updates are paced at about 60 per second during fast-forward. Heavy scenes can run below the target.
 
 ## 4. Diagnostic switches added
 
@@ -398,10 +415,11 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_PROBE_FS=<fs>[,<rt addr>]` | after each draw with that fragment shader, log the average colour of its target (and of the given RT) |
 | `SWR_WATCH_RT=<w>x<h>` | log what happens to RTs of that size: created, parked, revived, cleared (with the clear's registers), dropped, freed; `SWR_WATCH_RT_TRACE=1` traces the frame after a second clear in one frame |
 | `SWR_NO_ICON_SWAP=1` | keep the game's button icon sheets as they are (bug 11) |
-| `SWR_BACKGROUND=1` | background test mode: the window sits past the right edge of all monitors, is never activated, has no taskbar or Alt+Tab entry; sound is silenced (still sent to the device so audio timing is unchanged); the real pad, mouse and keyboard are ignored, only posted keys count. F8 captures and logs work as usual. `run.ps1` sets it unless `-Foreground` |
+| `SWR_BACKGROUND=1` | background test mode: the window sits past the right edge of all monitors, is never activated, has no taskbar or Alt+Tab entry; sound is silenced (still sent to the device so audio timing is unchanged); the real pad, mouse and keyboard are ignored, only posted keys count. F7 captures and logs work as usual. `run.ps1` sets it unless `-Foreground` |
+| `SWR_SPEED=1`, `SWR_SPEED=2` or `SWR_SPEED=4` | startup fast-forward target on OpenGL, for scripted tests. Invalid values use 1x |
 | `SWR_MUTE=1` | silence only, everything else as normal |
-| `SWR_SHOT8_EVERY=N[@s[,max]]` | an F8 capture every N presented frames, optionally from s seconds after the first frame and up to max captures (default 40): shows frame by frame how long a transition or glitch lasts |
-| `SWR_SHOT8_FLAG=N` | while a file `burst.flag` exists in the game folder, an F8 capture every N presents (a test script creates it when OCR sees the screen it wants) |
+| `SWR_SHOT8_EVERY=N[@s[,max]]` | an F7 capture every N presented frames, optionally from s seconds after the first frame and up to max captures (default 40): shows frame by frame how long a transition or glitch lasts |
+| `SWR_SHOT8_FLAG=N` | while a file `burst.flag` exists in the game folder, an F7 capture every N presents (a test script creates it when OCR sees the screen it wants) |
 | `SWR_TRACE_EVERY=N[@s[,max]]` | an F5 trace every N presents from s seconds, up to max (default 20) |
 | (F5 trace) | line draws also list the line widths, the shader stage registers and the first 16 vertices' float attributes; every draw lists the provoking vertex |
 | `SWR_AUDIO_STALL_AT=<s>` | test: pause the Windows audio device once after s seconds, to check that a stalled device doesn't freeze the game (bug 20) |
@@ -414,7 +432,7 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | (F5 trace) | each draw also lists scissor, clip control, depth bias, stencil function, vertex attribute formats; a skipped target-less draw lists its targets, stream-out state and storage writes and dumps its vertex shader |
 
 Tools in `_work/`: `run.ps1` launches in the background unless `-Foreground` is given. It posts keys to the game
-window with `Q+E` chords and `vk@ms` holds, uses the runtime's F8 capture for screenshots, and requests a normal exit
+window with `Q+E` chords and `vk@ms` holds, uses the runtime's F7 capture for screenshots, and requests a normal exit
 when time is up. It refuses to start while Recomp is running. Use `-GameDir` for a separate test install that links
 the dump in place and uses its own save directory. Other tools include `fn.sh` (print the generated C of one function), `dynsym.py`
 (symbolize `SWR_TRACE_DYN` output), `build.py`
@@ -479,6 +497,11 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 | Date | Where | What | State |
 | --- | --- | --- | --- |
+| 2026-11-27 | Owner fast-forward trial | F8 saved screenshots and smooth recording started on the November 25 executable. | old runtime replaced (bug 21). The owner confirmed fast-forward worked after launching the updated executable |
+| 2026-11-27 | Windows/OpenGL hotkeys | The remapped keys saved an F5 trace, an F6 recording and two F7 PNGs. F6 returned the game to 1x. F8 cycled the speed before and after recording. F9 switched controller 1 to one Joy-Con and back. | background smoke check passed |
+| 2026-11-27 | Windows/OpenGL opening, isolated Minigame Bay save | Background 1x, 2x and 4x runs completed and full-resolution captures showed some progression gains at the faster settings. Heavy sections stayed around 42-50 guest presents/s across all three targets. A scripted run cycled the speed through all three speeds, captured an F5 trace at 4x, and saved a video recording with 0 dropped frames and 0 lost audio packets. | controls and diagnostics verified. Full target progression and audible transitions remain open |
+| 2026-11-27 | Raceway, turn 2 | A 4x-target background replay resumed the board, advanced the Jamboree Buddy tutorial and completed CPU actions without a stall report. Before board entry, a lighter scene reached 107 guest presents/s with 60 window swaps/s. | board CPU turn smoke check passed. Exact turn speed still needs matched runs |
+| 2026-11-27 | Cold Front, inside the Raceway party | The 4x-target replay started the minigame from practice, awarded coins and returned to turn 3. The speed cycled back through all three speeds during the next board turn. | minigame and return to board smoke check passed. Mid-minigame speed changes remain to test |
 | 2026-11-25 | board prompts | four-dot icons showed Switch positions with an Xbox pad | fixed (bug 11) |
 | 2026-11-25 | minigame select | black background instead of the board | worked around (bug 12), cause open |
 | 2026-11-25 | anywhere | a stray Esc closed the game | changed: hold 1.5 s |
@@ -497,7 +520,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 ### Owner manual checks (open)
 
-The owner is checking these by hand against the console. Results go back into the table above.
+The owner is checking these by hand. Results go back into the table above.
 Review images are in `_work/save-library/review-2026-11-26` (local only, not committed).
 
 | # | Check | What to compare | Owner result |
@@ -511,7 +534,8 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 | M7 | Minigame transitions | the iris closes to white and stays white about 1.1 s while the minigame loads; after practice a 0.4 s fade through white | pending |
 | M8 | Jr.'s Jauntlet | the arena floor has horizontal scanlines over its pictures (screen effect?) | pending |
 | M9 | Rewards screen | the area below the header is plain black | pending |
-| M10 | Motion minigames | with F6 (one Joy-Con) the right stick tilts and O shakes; do the 25 motion games feel playable? | pending |
+| M10 | Motion minigames | with F9 (one Joy-Con) the right stick tilts and O shakes; do the 25 motion games feel playable? | pending |
+| M11 | Fast-forward audio | Check pitch and continuity at 1x, 2x and 4x during play and when switching back to 1x. | Owner confirmed fast-forward worked after launching the updated executable (bug 21) |
 
 ## 8. Next steps
 1. Owner checks M1-M10 (section 7): fold the results back into the playtest log and fix what differs.
@@ -528,6 +552,8 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
 9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, and a release check that
    no file in the package came from the dump. `CHANGELOG.txt` has an OpenJamboree section, kept current per change.
+10. Identify the work limiting fast-forward in heavy scenes and measure same-landmark progression on a CPU board
+    turn and in an active minigame. See `docs/handoff/fast-forward.md`.
 
 ## 9. Board coverage
 
@@ -574,7 +600,7 @@ capture about every 1.3 s (local only, `_work/save-library/evidence/mg/NNN`). In
 - **Pro Controller, 82 games:** every one reached its results menu (or, for 1-player challenges, its score screen)
   with nothing missing or broken in the captures. Luigi Rescue Operation (64) hit the script's 5.5 minute limit:
   it's a room-by-room puzzle the idle test player never solves, and it rendered normally throughout.
-- **Motion minigames, 25 games, played as one Joy-Con (F6, bug 19):** Tilt-a-Golf, Night Lights, Hammer It Home,
+- **Motion minigames, 25 games, played as one Joy-Con (bug 19):** Tilt-a-Golf, Night Lights, Hammer It Home,
   Twist and Sort, Shuttle Scuttle, Tiny Triathlon, Pickax Dash, Arch Rivals, Income Stream, Dorrie Pedal-Paddle,
   Robo Arm Wrestle, Coin Corral, Fast Fishing, Roll with It, Rosalina's Radical Race, and the ten cooking games
   (Soup Troupe, Parfait the Course, Whisk Cream, Spread 'n Butter, Short-Stack Chef, Burger Builders, Footlong

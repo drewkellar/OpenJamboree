@@ -163,10 +163,20 @@ void swr_audio_submit_at(const float* samples,unsigned frames,u64 sample_end){
   if(!frames || frames>SWR_AUDIO_FRAMES || audio_stopping()) return;
 #if defined(SWR_RECORD_AUDIO)
   /* the recording keeps the original samples on the game/video timeline. only what you hear live gets stretched,
-     F7 never encodes the slowed down audio */
+     F6 never encodes the slowed down audio */
   {extern void rec_audio(const float*,unsigned,u64); rec_audio(samples,frames,sample_end); }
 #endif
   if(!host_ready) return;
+  static SwrAudioDecimator decimator;
+  float reduced[SWR_AUDIO_FRAMES*2];
+  pm_lock(&queue_lock);
+  int speed=swr_speed();
+  if(speed>1){
+    frames=swr_audio_decimate(&decimator,samples,frames,speed,reduced);
+    samples=reduced;
+  } else decimator.speed=1;
+  pm_unlock(&queue_lock);
+  if(!frames) return;
   if(!__atomic_load_n(&worker_running,__ATOMIC_ACQUIRE)){ host_write(samples,frames); return; }
   /* waits for queue space, but never more than 100 ms without progress: the rest of the packet is dropped (the
      output side is stalled, see host_write) instead of holding the game's audio thread */

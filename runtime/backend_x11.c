@@ -3,7 +3,7 @@
    Forks and derived works have to keep the credit to SwitchRecomp by MZ Labs and the startup screen. */
 /* X11 + GLX 4.3 backend, the linux version of backend_win32.c (wayland desktops run it through XWayland).
    controllers come from SDL2, loaded at run time like XInput on windows. F1 help F3 screenshot F4 fps limit F5
-   trace F8 full res screenshot F11/Alt+Enter fullscreen Esc quit. the Xvfb tests run on this too (screenshots,
+   trace F7 full res screenshot F8 fast-forward F11/Alt+Enter fullscreen Esc quit. the Xvfb tests run on this too (screenshots,
    scripted input) */
 #include "rt.h"
 #include <X11/Xlib.h>
@@ -103,7 +103,13 @@ static void set_fullscreen(int on){
   if(on) XDefineCursor(dpy,win,g_blank); else XUndefineCursor(dpy,win);
   XFlush(dpy); g_fullscreen=on; }
 
-static void set_title(const char* t){ XStoreName(dpy,win,t); XFlush(dpy); }
+static void set_title(const char* status){
+  char speed[32]="", title[416];
+  if(swr_speed_available()) snprintf(speed,sizeof speed,"  |  Speed: %dx",swr_speed());
+  snprintf(title,sizeof title,"%s%s%s%s",g_title,speed,status? "  |  " : "",status? status : "");
+  XStoreName(dpy,win,title);
+  XFlush(dpy);
+}
 
 static const char* HELP=
   "SwitchRecomp - controls\n\n"
@@ -113,8 +119,8 @@ static const char* HELP=
   "  X / Space = A    Z = B    C = X    V = Y\n"
   "  Q = L   E = R   1 = ZL   3 = ZR   Enter = +   Backspace = -\n\n"
   "F1 = this help   F3 = screenshot   F4 = FPS limit 60 / unlimited   F5 = diagnostic dump (trace)\n"
-  "F8 = instant full-resolution screenshot (PNG in the captures folder)\n"
-  "F11 / Alt+Enter = fullscreen   Esc = quit";
+  "F7 = instant full-resolution screenshot (PNG in the captures folder)\n"
+  "F8 = fast-forward (OpenGL)   F11 / Alt+Enter = fullscreen   Esc = quit";
 
 void video_init(const char* title){
   snprintf(g_title,sizeof g_title,"%s - SwitchRecomp  (F1 help)",title);
@@ -130,7 +136,7 @@ void video_init(const char* title){
   swa.background_pixel=BlackPixel(dpy,scr);
   swa.event_mask=KeyPressMask|KeyReleaseMask|StructureNotifyMask|FocusChangeMask;
   win=XCreateWindow(dpy,RootWindow(dpy,vi->screen),0,0,g_ww,g_wh,0,vi->depth,InputOutput,vi->visual,CWColormap|CWEventMask|CWBackPixel,&swa);
-  XStoreName(dpy,win,g_title);
+  set_title(NULL);
   { XClassHint ch={(char*)"switchrecomp",(char*)"SwitchRecomp"}; XSetClassHint(dpy,win,&ch); }
   wm_delete=XInternAtom(dpy,"WM_DELETE_WINDOW",False); XSetWMProtocols(dpy,win,&wm_delete,1);
   a_state=XInternAtom(dpy,"_NET_WM_STATE",False); a_fs=XInternAtom(dpy,"_NET_WM_STATE_FULLSCREEN",False);
@@ -217,13 +223,14 @@ static void key_down(XKeyEvent* e){
     case XK_F11: if(once) set_fullscreen(!g_fullscreen); return;
     case XK_F1: if(once){ LOG("%s\n",HELP); plat_message(HELP,0,0); } return;
     case XK_F3: if(once) g_shot_req=1; return;
-    case XK_F7: if(once) LOG("F7 video recording is only available on Windows\n"); return;
-    case XK_F8: if(once){ extern volatile int g_shot8_req; g_shot8_req=1; } return;
+    case XK_F6: if(once) LOG("F6 video recording is only available on Windows\n"); return;
+    case XK_F7: if(once){ extern volatile int g_png_capture_req; g_png_capture_req=1; } return;
+    case XK_F8: if(once && swr_speed_cycle()) set_title(NULL); return;
     case XK_F5: if(once){ extern void gpu_gl_dump_rts(void); extern void kernel_dump_threads(void); extern __thread FILE* g_log_redirect;
         plat_mkdir("captures"); FILE* f=fopen("captures/threads.txt","w");   /* written next to the trace */
         if(f){ g_log_redirect=f; kernel_dump_threads(); g_log_redirect=NULL; fclose(f); }
         kernel_dump_threads(); gpu_gl_dump_rts(); } return;
-    case XK_F4: if(once){ g_opt_fps= g_opt_fps==0? 1 : 0; char t[300]; snprintf(t,sizeof t,"%s  |  FPS limit: %s",g_title,g_opt_fps==0? "unlimited" : "60"); set_title(t);
+    case XK_F4: if(once){ g_opt_fps= g_opt_fps==0? 1 : 0; char t[300]; snprintf(t,sizeof t,"FPS limit: %s",g_opt_fps==0? "unlimited" : "60"); set_title(t);
         extern void ini_set(const char*, const char*); char v[8]; snprintf(v,sizeof v,"%d",g_opt_fps); ini_set("fps_limit",v); } return;
   }
   keys_held|=keymap(k); }
@@ -233,7 +240,15 @@ static i32 axis(u64 b, int neg, int pos){ return ((b>>pos)&1? 32767:0) - ((b>>ne
 void video_poll(void){
   while(XPending(dpy)){ XEvent e; XNextEvent(dpy,&e);
     if(e.type==KeyPress) key_down(&e.xkey);
-    else if(e.type==KeyRelease){ KeySym k=XLookupKeysym(&e.xkey,0); key_once(k,0); keys_held&=~keymap(k); }
+    else if(e.type==KeyRelease){
+      KeySym k=XLookupKeysym(&e.xkey,0);
+      if(k==XK_F8 && XEventsQueued(dpy,QueuedAfterReading)){
+        /* Legacy X11 autorepeat synthesizes a release/press pair with the same timestamp. */
+        XEvent next; XPeekEvent(dpy,&next);
+        if(next.type==KeyPress && next.xkey.keycode==e.xkey.keycode && next.xkey.time==e.xkey.time) continue;
+      }
+      key_once(k,0); keys_held&=~keymap(k);
+    }
     else if(e.type==FocusOut) keys_held=0;
     else if(e.type==ConfigureNotify){ g_ww=e.xconfigure.width>0? e.xconfigure.width : 1; g_wh=e.xconfigure.height>0? e.xconfigure.height : 1; { extern void nvn_window_resized(int,int); nvn_window_resized(g_ww,g_wh); } }
     else if(e.type==ClientMessage && (Atom)e.xclient.data.l[0]==wm_delete){ LOG("window: closed by the user\n"); g_quit=1; } }

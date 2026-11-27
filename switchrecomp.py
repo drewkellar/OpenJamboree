@@ -291,7 +291,7 @@ def build_runtime(cc, out, target_win, backend, say, opt='2'):
     evk_libs = [os.path.join(evk, 'libedenvk.a'), os.path.join(evk, 'libsirit.a')]
     edenvk = gl and backend in ('win32', 'x11') and all(os.path.isfile(x) for x in evk_libs) and not os.environ.get('SWR_NO_EDENVK')
     if not edenvk: srcs += [os.path.join(RT, 'edenvk_stub.c')]
-    if target_win and backend == 'win32': srcs += [os.path.join(RT, 'rec_win32.c')]   # F7 recorder, Media Foundation
+    if target_win and backend == 'win32': srcs += [os.path.join(RT, 'rec_win32.c')]   # F6 recorder, Media Foundation
     # NVDEC/VIC video: link OpenH264 (BSD) statically if we have it for this target
     oh = os.path.join(RT, 'oh264', 'win' if target_win else 'lin')
     h264_libs = [os.path.join(oh, 'libdecoder.a'), os.path.join(oh, 'libcommon.a')]

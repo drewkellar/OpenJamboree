@@ -55,30 +55,75 @@ static u64 g_t0;
 
 u64 g_t0_ns(void){ return g_t0; }
 
-/* guest clock. normally it's the same as real time. in smooth recording mode (F7) it runs slower so every frame
+/* guest clock. normally it's the same as real time. in smooth recording mode (F6) it runs slower so every frame
    takes about 1/recording_fps of guest time, that way the video stays smooth even when the PC can't keep up. it
    never stops so guest timeouts still fire, and vsync follows it too */
-volatile int g_vt_on, g_rec_active; int g_opt_rec_smooth=1, g_opt_rec_fps=60;
+static int g_vt_on, g_rec_active;
+int g_opt_rec_smooth=1, g_opt_rec_fps=60;
 static PMutex g_vt_m; static int g_vt_mi;
+static int g_speed=1, g_speed_available=1;
+static u64 g_speed_ar, g_speed_av;   /* guest waits follow fast-forward, including across speed changes */
 static u64 g_vt_ar, g_vt_av, g_vt_lastfr; static double g_vt_s=1.0, g_vt_fr=0;   /* anchor + rate */
 static volatile u64 g_vt_max;
 
 static u64 guest_ns_raw(u64 r){ return g_vt_av+(u64)((double)(r-g_vt_ar)*g_vt_s); }
 
 u64 guest_ns(void){
-  u64 r=plat_ns()-g_t0, v;
-  if(!g_vt_mi){ v=r; } else { pm_lock(&g_vt_m); v=guest_ns_raw(r); pm_unlock(&g_vt_m); }
+  u64 v;
+  if(!g_vt_mi){ v=plat_ns()-g_t0; } else { pm_lock(&g_vt_m); v=guest_ns_raw(plat_ns()-g_t0); pm_unlock(&g_vt_m); }
   u64 m=__atomic_load_n(&g_vt_max,__ATOMIC_RELAXED);
   while(v>m){ if(__atomic_compare_exchange_n(&g_vt_max,&m,v,0,__ATOMIC_RELAXED,__ATOMIC_RELAXED)) return v; }
   return m; }
 
 static void vt_rebase(u64 r, double s){ g_vt_av=guest_ns_raw(r); g_vt_ar=r; g_vt_s=s; }
 
+int swr_speed(void){ return __atomic_load_n(&g_speed,__ATOMIC_RELAXED); }
+
+int swr_smooth_clock(void){ return __atomic_load_n(&g_vt_on,__ATOMIC_RELAXED); }
+
+int swr_speed_available(void){ return g_speed_available; }
+
+static u64 speed_clock_raw(u64 r){ return g_speed_av+(r-g_speed_ar)*(u64)swr_speed(); }
+
+u64 swr_wait_clock(void){
+  pm_lock(&g_vt_m);
+  u64 now=speed_clock_raw(plat_ns()-g_t0);
+  pm_unlock(&g_vt_m);
+  return now;
+}
+
+/* Caller holds the clock lock. Rebase both clocks before publishing a new speed. */
+static void speed_set_locked(int speed){
+  u64 r=plat_ns()-g_t0;
+  g_speed_av=speed_clock_raw(r);
+  g_speed_ar=r;
+  vt_rebase(r,(double)speed);
+  __atomic_store_n(&g_speed,speed,__ATOMIC_RELAXED);
+  g_vt_fr=0;
+  g_vt_lastfr=0;
+}
+
+int swr_speed_cycle(void){
+  if(!swr_speed_available()) return 0;
+  pm_lock(&g_vt_m);
+  if(g_rec_active){ pm_unlock(&g_vt_m); return 0; }
+  int speed=swr_speed();
+  speed=speed==4? 1 : speed*2;
+  __atomic_store_n(&g_vt_on,0,__ATOMIC_RELAXED);
+  speed_set_locked(speed);
+  pm_unlock(&g_vt_m);
+  kernel_speed_changed();
+  LOG("fast-forward: %dx\n",speed);
+  return speed;
+}
+
 static void vt_frame(void);
 void swr_vt_frame(void){ vt_frame(); }
 static void vt_frame(void){
-  if(!g_vt_mi) return;
-  u64 r=plat_ns()-g_t0; pm_lock(&g_vt_m);
+  if(!swr_smooth_clock()) return;
+  pm_lock(&g_vt_m);
+  if(!g_vt_on){ pm_unlock(&g_vt_m); return; }
+  u64 r=plat_ns()-g_t0;
   /* count CPU work too: a CPU bound game can take 50ms per frame while the GPU thread only needs 8ms. wall clock
      frame times include the game's own waits (30fps games mostly), so those don't go in */
   { extern u64 gpu_busy_ns(void); u64 b=gpu_busy_ns(),cpu=plat_thread_cpu_ns(); static u64 lb; static __thread u64 last_cpu;
@@ -86,18 +131,39 @@ static void vt_frame(void){
       /* attack fast, release slow */
       if(g_vt_fr<=0 || d>g_vt_fr) g_vt_fr=d; else g_vt_fr=g_vt_fr*0.92+d*0.08; } lb=b; last_cpu=cpu; }
   g_vt_lastfr=r;
-  double s=1.0; if(g_vt_on && g_vt_fr>0){ s=(1e9/(double)g_opt_rec_fps)/(g_vt_fr*1.25); if(s>1) s=1; if(s<0.02) s=0.02; }
-  { static double fs=-1; if(fs<0){ const char* e=getenv("SWR_VT_SCALE"); fs= e? atof(e) : 0; } if(g_vt_on && fs>0) s=fs; }   /* test hook: force the clock rate */
+  double s=1.0; if(g_vt_fr>0){ s=(1e9/(double)g_opt_rec_fps)/(g_vt_fr*1.25); if(s>1) s=1; if(s<0.02) s=0.02; }
+  { static double fs=-1; if(fs<0){ const char* e=getenv("SWR_VT_SCALE"); fs= e? atof(e) : 0; } if(fs>0) s=fs; }   /* test hook: force the clock rate */
   vt_rebase(r,s); pm_unlock(&g_vt_m); }
 
-void vt_set(int on){
-  if(!g_vt_mi){ pm_init(&g_vt_m); u64 r=plat_ns()-g_t0; g_vt_ar=r; g_vt_av=r; g_vt_s=1.0; g_vt_mi=1; }
-  pm_lock(&g_vt_m); vt_rebase(plat_ns()-g_t0,1.0); g_vt_fr=0; g_vt_lastfr=0; pm_unlock(&g_vt_m);
-  g_vt_on= on && g_opt_rec_smooth; }
+static void vt_set_locked(int on){
+  vt_rebase(plat_ns()-g_t0,(double)swr_speed());
+  g_vt_fr=0;
+  g_vt_lastfr=0;
+  __atomic_store_n(&g_vt_on,on && g_opt_rec_smooth && swr_speed()==1,__ATOMIC_RELAXED);
+}
+
+static void vt_set(int on){
+  pm_lock(&g_vt_m);
+  vt_set_locked(on);
+  pm_unlock(&g_vt_m);
+}
+
+void swr_record_clock(int on){
+  pm_lock(&g_vt_m);
+  int changed=on && swr_speed()!=1;
+  if(changed) speed_set_locked(1);
+  __atomic_store_n(&g_rec_active,on,__ATOMIC_RELAXED);
+  vt_set_locked(on);
+  pm_unlock(&g_vt_m);
+  if(changed){
+    kernel_speed_changed();
+    LOG("fast-forward: 1x (recording)\n");
+  }
+}
 
 /* vsync ticks on guest time */
 static void vsync_tick_vt(void){
-  static u64 next; if(!g_vt_on){ next=0; vi_vsync_tick(); return; }
+  static u64 next; if(!swr_smooth_clock()){ next=0; vi_vsync_tick(); return; }
   u64 v=guest_ns(); if(!next) next=v;
   if(v>=next){ vi_vsync_tick(); next+=16666667ull; if(v>next+50000000ull) next=v; } }
 
@@ -264,7 +330,7 @@ static const IniOpt INI_AUDIO[]={
   {"audio_slowdown","1","1 = slow live audio smoothly when the PC cannot keep up; retain every queued sample (F1)"},
   {NULL,NULL,NULL}};
 static const IniOpt INI_REC[]={
-  {"smooth_recording","1","1 = F7 recordings are always smooth: the game runs in slow motion while recording\n;   if the PC can't keep up, but the exported video plays at normal speed with no stutter"},
+  {"smooth_recording","1","1 = F6 recordings are always smooth: the game runs in slow motion while recording\n;   if the PC can't keep up, but the exported video plays at normal speed with no stutter"},
   {"recording_fps","60","FPS of the exported video (constant)"},
   {NULL,NULL,NULL}};
 
@@ -294,7 +360,8 @@ void ini_write(void){
   fprintf(f,";  Edit a value and save: most settings apply live while the game runs\n");
   fprintf(f,";  (docked, language, fullscreen and frame generation apply on restart).\n");
   fprintf(f,";  Keys in game: F1 help, F3 screenshot, F4 FPS limit, F5 trace,\n");
-  fprintf(f,";  F7 record video, F8 full-res screenshot, F11 fullscreen.\n");
+  fprintf(f,";  F6 record video, F7 full-res screenshot, F8 fast-forward (OpenGL).\n");
+  fprintf(f,";  F9 Pro Controller / one Joy-Con, F11 fullscreen.\n");
   fprintf(f,"; =====================================================================\n");
   for(int s=0;INI_SECS[s].title;s++){
     fprintf(f,"\n[%s]\n",INI_SECS[s].title);
@@ -358,13 +425,17 @@ void vi_show_addr(u64 a, u32 w, u32 h, u32 pitch, u32 layout, u32 bhl, u32 fmt){
   /* fps_limit: 1 = 60, 30 = every other image skipped (the game still runs 60 steps a second) */
   /* in smooth recording the limiter has to count guest time and not real time, if not games that tick once per
      frame run sped up in the video */
-  if(g_vt_on){ u64 per= g_opt_fps>=60 && g_opt_fps<=240? 1000000000ull/(u64)g_opt_fps : 16666667ull;
+  if(swr_smooth_clock()){ u64 per= g_opt_fps>=60 && g_opt_fps<=240? 1000000000ull/(u64)g_opt_fps : 16666667ull;
     static u64 last_g; u64 g=guest_ns(), next=last_g+per, t0=plat_ns();
     if(last_g && g<next && next-g<per*2){ while(g<next && plat_ns()-t0<1000000000ull){ plat_sleep_ns(500000); g=guest_ns(); } }
     g=guest_ns(); last_g= (last_g && g-last_g<2*per)? next : g; g_last_present=plat_ns(); return; }
   /* while recording keep at least the 60 cap, uncapped + per frame logic = sped up video */
-  if(g_opt_fps || g_rec_active){ u64 per= g_opt_fps>=60 && g_opt_fps<=240? 1000000000ull/(u64)g_opt_fps : 16666667ull;
+  int speed=swr_speed();
+  if(g_opt_fps || __atomic_load_n(&g_rec_active,__ATOMIC_RELAXED) || speed>1){ u64 per= g_opt_fps>=60 && g_opt_fps<=240? 1000000000ull/(u64)g_opt_fps : 16666667ull;
     if(g_opt_fps>=10 && g_opt_fps<60 && g_opt_fps!=30){ static int said; if(!said){ said=1; WARN("fps_limit=%d would run the game at %d%% speed (one game step per image): using 60\n",g_opt_fps,g_opt_fps*100/60); } }
+    static int last_speed=1;
+    if(speed!=last_speed){ g_last_present=0; last_speed=speed; }
+    per/=(u64)speed;
     u64 now=plat_ns(); u64 next=g_last_present+per;
     if(g_last_present && now<next) plat_sleep_ns((i64)(next-now));
     now=plat_ns(); g_last_present= (g_last_present && now-g_last_present<2*per)? next : now; }
@@ -472,7 +543,20 @@ int swr_main(int argc, char** argv){
   pm_init(&g_hint_lock); pm_init(&g_flock);
   plat_install_crash_handler();
   g_t0=plat_ns();
+  pm_init(&g_vt_m);
+  g_vt_mi=1;
   LOG("SwitchRecomp - %s (runtime %s, built %s)\n",g_exename,SWR_RUNTIME_VERSION,__DATE__);
+  extern int g_edenvk_want, gpu_nvn_wanted(void);
+  g_speed_available=!g_edenvk_want && !gpu_nvn_wanted();
+  const char* speed_option=getenv("SWR_SPEED");
+  if(speed_option && (!strcmp(speed_option,"2") || !strcmp(speed_option,"4"))){
+    if(swr_speed_available()){
+      pm_lock(&g_vt_m);
+      speed_set_locked(speed_option[0]-'0');
+      pm_unlock(&g_vt_m);
+      LOG("fast-forward: %dx\n",swr_speed());
+    } else WARN("fast-forward: SWR_SPEED requires the OpenGL renderer; using 1x\n");
+  } else if(speed_option && strcmp(speed_option,"1")) WARN("fast-forward: SWR_SPEED must be 1, 2, or 4; using 1x\n");
   if(load_code()) fatal("Could not load the game's recompiled code.");
   if(g_mod->abi!=1) fatal("The recompiled code is from another SwitchRecomp version.");
   g_title_id=g_mod->title_id;
@@ -495,34 +579,49 @@ int swr_main(int argc, char** argv){
   video_init(g_mod->title? g_mod->title : g_exename);
   { extern void plat_prof_start(int); if(g_opt_prof){ plat_prof_start(0); LOG("profile: active (profile.txt every 10 s)\n"); } }
   kernel_run_main(g_mod->mods[0].base+g_mod->mods[0].text_off,g_mod->main_stack?g_mod->main_stack:0x100000,(int)g_mod->main_prio,(int)g_mod->main_core);
-  /* 60Hz frontend loop */
-  u64 next=plat_ns(); int tick=0;
+  /* Accelerate display events while keeping frontend maintenance at 60 Hz wall time. */
+  const u64 frontend_period=16666667ull;
+  u64 next=plat_ns(), next_frontend=next;
+  int tick=0, last_speed=swr_speed();
   while(!g_quit){
-    video_poll(); hid_update(); vsync_tick_vt();
+    u64 now=plat_ns();
+    int speed=swr_speed();
+    if(speed!=last_speed){ next=now; last_speed=speed; }
+    if(now>=next){
+      video_poll(); hid_update(); vsync_tick_vt();
+      next+=frontend_period/(u64)speed;
+      if(next<now) next=now+frontend_period/(u64)speed;
+    }
+    if(now>=next_frontend){
+      next_frontend+=frontend_period;
+      if(now>next_frontend && now-next_frontend>100000000ull) next_frontend=now+frontend_period;
 #if defined(SWR_RECORD_AUDIO)
-    {extern void rec_watchdog(void); rec_watchdog(); }
+      {extern void rec_watchdog(void); rec_watchdog(); }
 #endif
-    {extern void swr_audout_tick(void); swr_audout_tick(); }
-    if(tick%60==0){ ini_poll(); { extern void nvn_census_tick(void); nvn_census_tick(); } }
-    { extern void kernel_heal_mutexes(void); kernel_heal_mutexes(); }
-    /* bail out of the slow clock if nothing was presented for 3s */
-    { static int lf=-1, still; if(g_vt_on && !g_rec_active){ if(g_frames!=lf){ lf=g_frames; still=0; } else if(++still==180){ vt_set(0); WARN("smooth recording: the game stopped presenting images; back to the normal clock\n"); } } else { lf=-1; still=0; } }
-    frontend_frame();
-    if(++tick%300==0) save_hints();
-    /* dump thread states to threads.txt every 15s, useful when something hangs */
-    if(tick%900==0){ extern __thread FILE* g_log_redirect; extern void kernel_dump_threads(void); char p[1200]; snprintf(p,sizeof p,"%sthreads.txt",g_exedir);
-      FILE* f=fopen(p,"w"); if(f){ extern void gpu_gl_stall_report(void); fprintf(f,"second %d, frames %d\n",tick/60,g_frames); g_log_redirect=f; gpu_gl_stall_report(); kernel_dump_threads(); g_log_redirect=NULL; fclose(f); } }
-    /* auto diag only with diag=1, F5 always works */
-    { extern int g_opt_diag; if(g_opt_diag && (tick==60*20 || tick==60*40)){ extern void gpu_gl_dump_rts(void); gpu_gl_dump_rts(); } }
-    /* after jumping out of a driver crash the driver can keep a lock it never lets go of, and the game just stops
-       with no image. the shader is on the skip list already, so close with a message instead of hanging forever */
-    { extern volatile int g_driver_recovered; static int lf=-1, still; if(!g_driver_recovered || g_frames!=lf){ lf=g_frames; still=0; }
-      else if(++still==60*8) fatal("The video driver crashed while compiling a shader and stopped responding.\nThat shader is on the skip list now, open the game again: from now on this game compiles\nits shaders in a separate process, so a driver crash can't stop it.\n(if it keeps happening, update the video driver)"); }
-    { static int last_frames=-1, still=0, dumps=0; if(g_frames!=last_frames){ last_frames=g_frames; still=0; }
-      /* the first dump after 6 s: people close a frozen game before 15 */
-      else if(++still==60*(dumps? 15 : 6) && dumps<4){ int sec= dumps? 15 : 6; dumps++; still=0; extern void kernel_dump_threads_stall(void);
-        LOG("warning: %d s without a new image (frames=%d, GPU submits=%llu)\n",sec,g_frames,(unsigned long long)g_gpu_submits); kernel_dump_threads_stall(); } }
-    next+=16666667ull; u64 now=plat_ns(); if(next>now) plat_sleep_ns((i64)(next-now)); else if(now-next>100000000ull) next=now;
+      {extern void swr_audout_tick(void); swr_audout_tick(); }
+      if(tick%60==0){ ini_poll(); { extern void nvn_census_tick(void); nvn_census_tick(); } }
+      { extern void kernel_heal_mutexes(void); kernel_heal_mutexes(); }
+      /* bail out of the slow clock if nothing was presented for 3s */
+      { static int lf=-1, still; if(swr_smooth_clock() && !__atomic_load_n(&g_rec_active,__ATOMIC_RELAXED)){ if(g_frames!=lf){ lf=g_frames; still=0; } else if(++still==180){ vt_set(0); WARN("smooth recording: the game stopped presenting images; back to the normal clock\n"); } } else { lf=-1; still=0; } }
+      frontend_frame();
+      if(++tick%300==0) save_hints();
+      /* dump thread states to threads.txt every 15s, useful when something hangs */
+      if(tick%900==0){ extern __thread FILE* g_log_redirect; extern void kernel_dump_threads(void); char p[1200]; snprintf(p,sizeof p,"%sthreads.txt",g_exedir);
+        FILE* f=fopen(p,"w"); if(f){ extern void gpu_gl_stall_report(void); fprintf(f,"second %d, frames %d\n",tick/60,g_frames); g_log_redirect=f; gpu_gl_stall_report(); kernel_dump_threads(); g_log_redirect=NULL; fclose(f); } }
+      /* auto diag only with diag=1, F5 always works */
+      { extern int g_opt_diag; if(g_opt_diag && (tick==60*20 || tick==60*40)){ extern void gpu_gl_dump_rts(void); gpu_gl_dump_rts(); } }
+      /* after jumping out of a driver crash the driver can keep a lock it never lets go of, and the game just stops
+         with no image. the shader is on the skip list already, so close with a message instead of hanging forever */
+      { extern volatile int g_driver_recovered; static int lf=-1, still; if(!g_driver_recovered || g_frames!=lf){ lf=g_frames; still=0; }
+        else if(++still==60*8) fatal("The video driver crashed while compiling a shader and stopped responding.\nThat shader is on the skip list now, open the game again: from now on this game compiles\nits shaders in a separate process, so a driver crash can't stop it.\n(if it keeps happening, update the video driver)"); }
+      { static int last_frames=-1, still=0, dumps=0; if(g_frames!=last_frames){ last_frames=g_frames; still=0; }
+        /* the first dump after 6 s: people close a frozen game before 15 */
+        else if(++still==60*(dumps? 15 : 6) && dumps<4){ int sec= dumps? 15 : 6; dumps++; still=0; extern void kernel_dump_threads_stall(void);
+          LOG("warning: %d s without a new image (frames=%d, GPU submits=%llu)\n",sec,g_frames,(unsigned long long)g_gpu_submits); kernel_dump_threads_stall(); } }
+    }
+    u64 wake=next<next_frontend? next : next_frontend;
+    now=plat_ns();
+    if(wake>now) plat_sleep_ns((i64)(wake-now));
   }
   save_hints(); { extern void gpu_gl_rec_finish(void); gpu_gl_rec_finish(); } LOG("Exit.\n"); fflush(NULL);
 #if defined(_WIN32)
