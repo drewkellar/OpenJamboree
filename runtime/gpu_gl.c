@@ -405,7 +405,21 @@ static void ds_rows(void* c, u32 a, u32 b){ DsJob* j=c;
   for(u32 r=a;r<b;r++){ u32 z=r/th, y=r%th; u8* dr=j->lin+(u64)r*rowb; u32 gy=y/8, yb=y%8;
     u64 row=((u64)(z/bd)*blocks_h*gob_w + (u64)(gy/bh)*gob_w)*bsz + ((u64)(z%bd)*bh + gy%bh)*512; u32 rin=(yb/2)*64 + (yb%2)*16;
     u32 sk[4]; for(u32 k=0;k<4;k++) sk[k]= nat? gob_native(rin+seg[k]) : rin+seg[k];
-    for(u32 gx=0;gx<gob_w;gx++){ u64 base=row+(u64)gx*bsz; u32 x0=gx*64;
+    u32 full=rowb/64;
+    /* Segment offsets increase in both GOB layouts. Check the last full
+       group once so the usual path can do four fixed-size copies. */
+    if(full && row+(u64)(full-1)*bsz+sk[3]+16>j->lsz) full=0;
+    u64 base=row;
+    u32 gx=0;
+    for(;gx<full;gx++,base+=bsz){
+      const u8* src=j->src+base;
+      u8* dst=dr+(u64)gx*64;
+      memcpy(dst,   src+sk[0],16);
+      memcpy(dst+16,src+sk[1],16);
+      memcpy(dst+32,src+sk[2],16);
+      memcpy(dst+48,src+sk[3],16);
+    }
+    for(;gx<gob_w;gx++,base+=bsz){ u32 x0=gx*64;
       for(u32 k=0;k<4;k++){ u32 x=x0+k*16; if(x>=rowb) break; u32 n=rowb-x<16? rowb-x : 16; u64 o=base+sk[k]; if(o+n<=j->lsz) memcpy(dr+x,j->src+o,n); } } } }
 /* ASTC / BCn: ranges of block rows */
 typedef struct { const u8* src; u8* dst; u32 w, h, bw, bh, kind, bsz; } DecJob;
@@ -520,15 +534,19 @@ static void tex_upload(Tex* t){ st_tex_up+=t->size;
       u64 lsz= t->bl? bl_level_size(FW,FH,depth3d,f,t->bh,t->bd,l,&lbh) : (u64)t->pitch*th;
       if(l<sk){ off+=lsz; continue; }
       u32 gl_l=l-sk;
-      u64 lin_size=(u64)rowb*th*ld; u8* lin=malloc(lin_size? lin_size : 1);
-      u8* src=malloc(lsz? lsz : 1);
-      if(!lin || !src){ free(lin); free(src); static int said; if(said<sw2_cap(4)){ said++; LOG("gpu: out of memory uploading texture %ux%ux%u (%llu MB): skipped\n",t->w,t->h,t->d,(unsigned long long)(lsz>>20)); } off+= t->bl? lsz : (u64)t->pitch*th; continue; }
+      u64 lin_size=(u64)rowb*th*ld;
+      /* A tightly packed 2D level already has the layout GL expects. */
+      int packed=!t->bl && ld==1 && t->pitch==rowb;
+      u8* lin=malloc(lin_size? lin_size : 1);
+      u8* raw=packed? NULL : malloc(lsz? lsz : 1);
+      u8* src=packed? lin : raw;
+      if(!lin || !src){ free(lin); free(raw); static int said; if(said<sw2_cap(4)){ said++; LOG("gpu: out of memory uploading texture %ux%ux%u (%llu MB): skipped\n",t->w,t->h,t->d,(unsigned long long)(lsz>>20)); } off+=lsz; continue; }
       gmem_read(t->gva+off,src,lsz);
       if(t->target==GL_TEXTURE_3D && t->zero3d){ for(u64 k=0;k<lsz;k++) if(src[k]){ t->zero3d=0; break; }
         if(!t->zero3d && was_zero3d){ static int said; if(said<sw2_cap(16)){ said++; LOG("gpu: 3D texture %ux%ux%u at %llx got its data in memory (frame %u)\n",t->w,t->h,t->d,(unsigned long long)t->gva,g_frame); } } }
       if(t->bl){ u32 lbd=t->bd; while(lbd>0 && ld<=(1u<<(lbd-1))) lbd--;   /* 3D: block depth (LUTs) */
         DsJob dj={lin,src,lsz,rowb,th,lbh,lbd}; pf_run(ds_rows,&dj,ld*th,(u32)((256u<<10)/(rowb? rowb : 1))); }
-      else { for(u32 y=0;y<th;y++) memcpy(lin+(u64)y*rowb,src+(u64)y*t->pitch,rowb); }
+      else if(!packed){ for(u32 y=0;y<th;y++) memcpy(lin+(u64)y*rowb,src+(u64)y*t->pitch,rowb); }
       if(t->icons && l==0 && layer==0){
         t->icons_on=(u8)hid_xbox_layout();
         if(t->icons==ICON_BALLOON && t->icons_on && balloon_icon_hash(t->hash)) balloon_icon_rotate(lin,f->bpp);
@@ -538,8 +556,8 @@ static void tex_upload(Tex* t){ st_tex_up+=t->size;
         if(h){ for(u64 k=0;k<n;k++){ u32 v; memcpy(&v,lin+k*4,4); u16* q=h+k*4;
             q[0]=lut_f16(uf_decode(v&0x7FF,6)); q[1]=lut_f16(uf_decode((v>>11)&0x7FF,6)); q[2]=lut_f16(uf_decode(v>>22,5)); q[3]=0x3C00; }
           glTexSubImage3D(GL_TEXTURE_3D,gl_l,0,0,0,lw,lh,ld,GL_RGBA,GL_HALF_FLOAT,h); free(h); }
-        free(lin); free(src); off+= t->bl? lsz : (u64)t->pitch*th; continue; }
-      if((f->astc||f->dec) && !(dec=malloc((size_t)lw*lh*4+64))){ free(lin); free(src); off+= t->bl? lsz : (u64)t->pitch*th; continue; }
+        free(lin); free(raw); off+=lsz; continue; }
+      if((f->astc||f->dec) && !(dec=malloc((size_t)lw*lh*4+64))){ free(lin); free(raw); off+=lsz; continue; }
       if(f->astc){ DecJob dj={lin,dec,lw,lh,f->bw,f->bh,0,16}; pf_run(astc_rows,&dj,(lh+f->bh-1)/f->bh,16); up=dec; }
       if(f->astc && f->tobc){ u32 bx=(lw+3)/4, by=(lh+3)/4; GLsizei isz=(GLsizei)((size_t)bx*by*16); u8* bc=malloc((size_t)isz+16);
         if(bc){ BcEnc ej={dec,bc,lw,lh}; pf_run(bc3_rows,&ej,by,8);
@@ -547,7 +565,7 @@ static void tex_upload(Tex* t){ st_tex_up+=t->size;
           else if(t->target==GL_TEXTURE_2D_ARRAY || t->target==GL_TEXTURE_CUBE_MAP_ARRAY) glCompressedTexSubImage3D(t->target,gl_l,0,0,layer,lw,lh,1,f->ifmt,isz,bc);
           else if(t->target==GL_TEXTURE_CUBE_MAP) glCompressedTexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+layer,gl_l,0,0,lw,lh,f->ifmt,isz,bc);
           free(bc); }
-        free(dec); free(lin); free(src); off+= t->bl? lsz : (u64)t->pitch*th; continue; }
+        free(dec); free(lin); free(raw); off+=lsz; continue; }
       else if(f->dec){ u32* o=(u32*)dec;
         if(f->dec<10){ DecJob dj={lin,dec,lw,lh,4,4,f->dec,(f->dec==2||f->dec==5)? 8u : 16u}; pf_run(bc_rows,&dj,(lh+3)/4,32); }
         else { const u16* q=(const u16*)lin; for(u32 y=0;y<lh;y++) for(u32 x=0;x<lw;x++){ u32 v=q[(size_t)y*(rowb/2)+x], rr,gg,bb,aa;
@@ -578,8 +596,8 @@ static void tex_upload(Tex* t){ st_tex_up+=t->size;
         else if(t->target==GL_TEXTURE_3D) glTexSubImage3D(GL_TEXTURE_3D,gl_l,0,0,0,lw,lh,ld,fm,ty,up);
         else if(t->target==GL_TEXTURE_1D) glTexSubImage2D(GL_TEXTURE_2D,gl_l,0,0,lw,1,fm,ty,up);
       }
-      free(dec); free(lin); free(src);
-      off+= t->bl? lsz : (u64)t->pitch*th;
+      free(dec); free(lin); free(raw);
+      off+=lsz;
     }
   }
 }

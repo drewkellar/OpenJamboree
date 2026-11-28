@@ -23,7 +23,7 @@ Last updated 2026-11-28. Keep this table current with every change (see `AGENTS.
 | Motion minigames (25) | **fixed** (bug 19): play as one Joy-Con with F9; right stick tilts, O shakes. Feel still to be checked by the owner (M10) |
 | New party | works: party rules tutorial (scroll with the D-pad), board and settings, turn order, first turn, autosave |
 | Pause menu on the board | works (Resume, exit to the balloon or plaza with its confirmation) |
-| Load hitches | open: the tested Mega Wiggler resume route stayed below 1.5 s per frame gap. Other boards showed 2.7-7.2 s gaps on first entry (section 9); small spikes during ordinary play |
+| Load hitches | OpenGL texture preparation is faster (bug 26). The tested Mega Wiggler resume route stayed below 1.5 s per frame gap. Other boards showed 2.7-7.2 s gaps on first entry (section 9). Long stalls remain open |
 | Save dates | **fixed** (bug 6): parties were dated 12/31/1969 |
 | Mode list backdrop | not reproduced: the gray panel seen there is the game's own Offline Data dialog |
 | Reading the user's dump in place | works (`game_dump=`), nothing copied |
@@ -422,6 +422,21 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - An isolated Windows OpenGL replay on the same turn opened Look Around, moved the cursor and
   returned to the turn menu repeatedly. The game closed normally. The intermittent stall remains open.
 
+### Bug 26: texture preparation during board entry
+
+- A cold-cache replay of the Rainbow Galleria checkpoint reached its board archive and recorded a 668 ms
+  gap between frames. The GPU thread spent 297 ms on texture work in that frame. That timing includes
+  more than untile work, so the full frame is tracked separately from the CPU routine.
+- The OpenGL runtime now checks the bounds of a complete GOB row segment run once and copies four
+  fixed-size segments per group. Partial groups and truncated sources still use the per-segment checks.
+  Tightly packed 2D levels now use one CPU staging allocation and avoid a second copy before upload.
+- A standalone comparison matched the previous untile routine byte for byte in 4,000 cases covering
+  both GOB layouts, depth slices, odd widths and truncated sources. On the test PC, the median of five
+  trials of 500 repeats on one 2 MiB level dropped from 87.7 ms to 49.5 ms.
+- In one matched cold-cache pair, the longest frame gap in the 20 seconds after the board archive
+  opened fell from 668 ms to 622 ms. Both runs had six gaps over 50 ms. Texture work in the slowest
+  frame was 297 ms before and 316 ms after, so the pair does not isolate a board-wide speedup.
+
 ## 3. Features added
 
 - `game_dump=` (new `[Game]` section in the game's `.ini`): exefs and romfs are read from the user's own extracted
@@ -551,6 +566,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 | Date | Where | What | State |
 | --- | --- | --- | --- |
+| 2026-11-28 | Rainbow Galleria, cold board entry | Baseline and updated background replays opened the board; the longest frame gap fell in this pair, with six gaps over 50 ms in both. | exact untile output and faster CPU routine verified; repeat board timing before attributing a change (bug 26) |
 | 2026-11-28 | Kamek's opening flyover | Matched background runs averaged 53.9 and 58.5 FPS over the sampled opening segment before and after the conversion change. | improvement measured (bug 24) |
 | 2026-11-28 | Hot-Air Balloon | The open destination prompt moved its confirm dot between bottom and right after a layout change. Mock pads exercised SDL3 layout selection, drift, the Switch override and detach/reattach. | background OpenGL and automated input checks passed. Physical controller handoff pending (bug 22) |
 | 2026-11-28 | Mega Wiggler's Tree Party, turn 2 | Repeatedly opened and exited Look Around from Mario's turn menu and moved the cursor between spaces. | no freeze reproduced (bug 25) |
