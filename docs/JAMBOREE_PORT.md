@@ -39,6 +39,7 @@ Last updated 2026-11-28. Keep this table current with every change (see `AGENTS.
 | Esc | no longer quits on a tap: hold it 1.5 s (the title bar says so) |
 | Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); a stalled output device no longer freezes the game (bug 20). Not checked by ear |
 | Background test evidence | Explicit milestone screenshots, bounded automatic captures, and cleanup for finished replays (bug 23) |
+| Local Windows playtest builds | `_work/playtest-build.ps1` installs a successful build when the game is closed and stages it while the game is running |
 | Owner checks | M1-M10 and M12 pending. The owner confirmed M11 on the updated runtime (section 7) |
 
 Fastest path to a board with a save (keys): + skips the intro, Q+E at the title, A through the plaza, then in the
@@ -439,6 +440,9 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 
 ## 3. Features added
 
+- `_work/playtest-build.ps1` builds the current Windows OpenGL checkout and updates `games/Recomp.exe` only
+  after a successful compile. It stages the executable if the game is in use and keeps one rollback copy.
+  Use `-ApplyPending` after closing the game. The developer guide describes the separate bundled launcher update.
 - `game_dump=` (new `[Game]` section in the game's `.ini`): exefs and romfs are read from the user's own extracted
   dump where it is. Saves, `sdmc` and fonts stay in `<name>_data/`. If neither `game_dump` nor `<name>_data/` has
   `exefs/main`, a folder picker asks for the dump (3 tries, then a clear error). The dump's `main.npdm` program id
