@@ -3,7 +3,7 @@
    Forks and derived works have to keep the credit to SwitchRecomp by MZ Labs and the startup screen. */
 /* hid. games read the shared memory directly, so we fill it in the real layout (17 entry LIFOs) */
 #include "rt.h"
-int g_pad_icons_xbox;   /* the backend maps the face buttons by label (Xbox A = A): gpu_gl.c swaps the icon diamonds */
+int g_pad_icons_xbox;   /* Windows uses the Xbox layout with pad_buttons=0 */
 #include "hid_layout.h"
 #include <math.h>
 

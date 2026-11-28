@@ -292,7 +292,7 @@ static const IniOpt INI_INPUT[]={
   {"mouse_right_stick","0","Right stick: 0 = IJKL, 1 = mouse (change with F1)"},
   {"mouse_sensitivity","1.00","Mouse sensitivity: F1 10%..500% goes from 5x to 1250x speed, on a curve so 100% stays close to before"},
   {"mouse_invert","0","Mouse inversion: 0 = normal, 1 = horizontal, 2 = vertical, 3 = both"},
-  {"pad_buttons","0","Xbox pad face buttons: 0 = by label (A confirms, B goes back), 1 = by position like a Switch pad\n;   (the right button confirms). The on-screen button icons follow either setting"},
+  {"pad_buttons","0","Face button layout: 0 = follow the active controller (Xbox A or Nintendo A confirms),\n;   1 = use Switch positions on any controller (the right button confirms)"},
   {NULL,NULL,NULL}};
 
 static const IniOpt INI_GRAPHICS[]={

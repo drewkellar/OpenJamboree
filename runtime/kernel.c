@@ -641,6 +641,80 @@ static int nvrm_trace_on(void){ static int v=-1; if(v<0) v= getenv("SWR_TRACE_OF
    memory pools and window textures come after the driver's, they were cut off at 6) */
 static int nvrm_cap(const char* nm){ int os=!strncmp(nm,"NvOsDrv",7); if(strstr(nm,"ErrorNotification")) return 4; return nvrm_trace_on()? (os? 400 : 150) : (os? 40 : 6); }
 static int guest_ok(u64 a, u64 n){ MemBlock b; if(a<0x10000) return 0; mem_query(a,&b); return b.state!=MS_FREE && a+n<=b.addr+b.size; }
+
+#ifdef _WIN32
+/* Jamboree v1.1.0 uses a shared board cursor. Keep its normal A selection and
+   change only the two shortcuts registered by the turn menu. */
+static GuestFn jamboree_set_shortcut, jamboree_set_label, jamboree_set_string;
+static u64 jamboree_board_base, jamboree_set_string_pc;
+
+static void jamboree_board_shortcut(CPU* c, u64 entry){
+  /* The board commands use the same guest buttons for all layouts. The input
+     backend and icon renderer translate those buttons to the active positions. */
+  u64 caller=c->x[30]-jamboree_board_base;
+  if(caller==0x3902D4 && c->x[1]==4) c->x[1]=0;  /* Dice Block: normal A selection */
+  if(caller==0x390408 && c->x[1]==2) c->x[1]=4;  /* Look Around: X instead of B */
+  jamboree_set_shortcut(c,entry);
+}
+
+static int jamboree_label_is(u64 view, const char* name){
+  size_t len=strlen(name);
+  if(!guest_ok(view,16) || gr64(view+8)!=len) return 0;
+  u64 label=gr64(view);
+  return guest_ok(label,len) && !memcmp(GP(label),name,len);
+}
+
+static void jamboree_board_label(CPU* c, u64 entry){
+  u64 pane=c->x[0], label=c->x[1], lr=c->x[30];
+  u16 from=0, to=0;
+  if(jamboree_label_is(label,"bd00_pl_dice")){ from=0xE002; to=0xE000; }
+  if(jamboree_label_is(label,"bd00_pl_ctrl_display")){ from=0xE003; to=0xE002; }
+  jamboree_set_label(c,entry);
+  if(!from || c->pc!=lr || !guest_ok(pane+168,16)) return;
+
+  /* Copy the resolved UTF-16 text, preserving the translation. SetString copies
+     the temporary view to the layout; the shared message table stays untouched. */
+  enum { MAX_TEXT_BYTES=512 };
+  u64 begin=gr64(pane+168), end=gr64(pane+176);
+  if(end<=begin || end-begin>MAX_TEXT_BYTES || (end-begin)%2 || !guest_ok(begin,end-begin)) return;
+  u16 glyph;
+  memcpy(&glyph,GP(begin),sizeof glyph);
+  if(glyph!=from) return;
+  u64 sp=c->x[31], size=end-begin, scratch=sp-((size+16+15)&~15ull);
+  if(!guest_ok(scratch,sp-scratch)) return;
+  gw64(scratch,scratch+16);
+  gw64(scratch+8,size/2);
+  memcpy(GP(scratch+16),GP(begin),size);
+  memcpy(GP(scratch+16),&to,sizeof to);
+  c->x[31]=scratch; c->x[0]=pane; c->x[1]=scratch; c->x[30]=lr;
+  jamboree_set_string(c,jamboree_set_string_pc);
+  if(c->pc==lr) c->x[31]=sp;
+}
+
+static void jamboree_board_pad_install(void){
+  if(g_title_id!=0x0100965017338000ull) return;
+  static const u8 main_id[]={0x5a,0x7a,0x58,0x26,0x8e,0x5f,0x21,0x48,0x83,0x52,0x61,0x41,0xdb,0xe4,0xbf,0x2e,0xd2,0xcc,0xc6,0x91};
+  static const u8 board_id[]={0x78,0xc3,0x74,0x74,0x2e,0x6b,0x77,0x84,0xae,0x98,0xe4,0x0f,0x0a,0x74,0x98,0x14,0xf7,0x2b,0xd5,0x6f};
+  u64 main_base=0, board_base=0;
+  for(u32 i=0;i<g_mod->nmods;i++){
+    const SwrModInfo* m=&g_mod->mods[i];
+    if(!strcmp(m->name,"main") && !memcmp(m->build_id,main_id,sizeof main_id)) main_base=m->base;
+    if(!strcmp(m->name,"romfs/nro/NX_Release/bd01.nro") && !memcmp(m->build_id,board_id,sizeof board_id)) board_base=m->base;
+  }
+  if(!main_base || !board_base) return;
+  u64 shortcut_pc=board_base+0xF0EEC, label_pc=main_base+0x20FF60, string_pc=main_base+0x20FF38;
+  GuestFn* shortcut=&g_disp[(shortcut_pc-g_code_lo)/4], *label=&g_disp[(label_pc-g_code_lo)/4];
+  GuestFn set_string=g_disp[(string_pc-g_code_lo)/4];
+  if(!*shortcut || !*label || !set_string) return;
+  jamboree_board_base=board_base;
+  jamboree_set_shortcut=*shortcut;
+  jamboree_set_label=*label;
+  jamboree_set_string=set_string;
+  jamboree_set_string_pc=string_pc;
+  *shortcut=jamboree_board_shortcut;
+  *label=jamboree_board_label;
+}
+#endif
 /* NvRmMem handles the driver made (NvRmMemHandleAllocAttr) and the memory they cover: a window texture whose pool
    reads back handle 0 gets the handle of the memory it sits in */
 #define NMH_MAX 1024
@@ -767,6 +841,9 @@ void hle_install(void){
     int with_info= strstr(nm,"ShowControllerSupport") && strstr(nm,"ControllerSupportResultInfo");
     g_disp[(a-g_code_lo)/4]= with_info? hle_ctrl_support : hle_ctrl_other; n++;
     LOG("hle: %s at %llx\n",nm,(unsigned long long)a); }
+#ifdef _WIN32
+  jamboree_board_pad_install();
+#endif
   if(g_nhl) LOG("hle: %d sead::ExpHeap functions run under one lock (threads that share a core on the switch run at once here)\n",g_nhl);
   (void)n; }
 

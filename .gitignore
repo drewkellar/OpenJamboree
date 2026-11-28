@@ -84,6 +84,8 @@ __pycache__/
 *.pdb
 tool/pylib/
 Lossless.dll
+lib/SDL3-LICENSE.txt
+lib/_downloads/
 
 # ---- per-user settings (the tracked SwitchRecomp.ini is the template) ----
 *.ini
