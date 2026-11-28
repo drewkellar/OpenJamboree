@@ -98,6 +98,9 @@ _work/*
 !_work/*.sh
 !_work/*.c
 _work/*.orig
+!_work/save-library/
+_work/save-library/*
+!_work/save-library/prepare.ps1
 
 # ---- images and media (screenshots of the game) ----
 *.png

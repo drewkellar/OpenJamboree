@@ -3,6 +3,8 @@ OpenJamboree (Super Mario Party Jamboree on Switch2Recomp 0.4.1) - unreleased
 Newest first. Every change adds its line here (see AGENTS.md); details, evidence and causes are in
 docs/JAMBOREE_PORT.md under the bug number.
 
+- Background tests capture screenshots only on request, cap automated bursts, and support cleaning up completed replays.
+- Save-library replays can share a build's binaries while keeping independent saves and logs.
 - Windows OpenGL prompts follow the active Xbox or Nintendo Switch Pro Controller, including the balloon selector (bug 22).
 - Speed up the intro movie's video color conversion on x86-64 (bug 24).
 - Xbox board controls use A for Dice Block, X for Look Around, and Y for Board, with matching OpenGL prompts (bug 22).

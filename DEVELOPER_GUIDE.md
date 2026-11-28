@@ -142,7 +142,53 @@ ones used most: `SWR_NO_IMG_LEVEL`, `SWR_IMG_LEVEL_2D_ONLY`, `SWR_NO_CUBE_MIPGEN
 
 ---
 
+### Keeping test artifacts small
+
+Run `_work/run.ps1` without `-ShotList` for input, performance and log checks. For a visual
+check, request a few milestones with `-ShotList '36,70'`. For minigames, choose
+practice, active play and results when each phase needs evidence.
+
+Automated F7 schedules and `burst.flag` share a limit of 12 captures per launch
+(`SWR_TEST_SHOT_LIMIT`). Set it to 0 to disable them or raise it for a targeted frame-by-frame
+reproduction. Explicit F7 presses and `-ShotList` still work. `SWR_TRACE_EVERY` defaults to
+one trace when enabled. Specify a larger maximum only for a problem that needs repeated traces.
+
+#### Sharing replay binaries
+
+Keep one immutable binary snapshot per build you still need to replay. A replay can use hard links to
+that snapshot's `Recomp.exe` and `Recomp_code.dll` when both directories are on the same NTFS volume.
+Create a new snapshot directory for a rebuild so existing replays continue to use their original binaries.
+Avoid linking to a working executable or DLL that a build might overwrite.
+
+Keep a separate working save for every replay because the game autosaves. Logs, settings, and
+`Recomp.hints` also belong to the individual replay. For a cold-load test, give the replay its own
+empty shader cache. Restore the original start point by preparing a fresh replay from its named checkpoint.
+
+The save-library helper can stage hard links from a prepared build snapshot. Supply the snapshot
+directory, which must contain both binaries and its replay configuration (`Recomp.ini`).
+
+```powershell
+$replay = _work/save-library/prepare.ps1 -Checkpoint raceway-turn-02 -RuntimeDir $snapshot -ShareBinaries
+```
+
+Once a dated replay is complete, keep the small set of evidence needed for review and record the
+result in the port notes. Move selected screenshots into the evidence folder to avoid storing them twice.
+Preview and clear generated artifacts by replay name. The script
+keeps logs and saves, including text traces within the capture directory. Pass `-Binaries` when
+the replay's copied executable and code DLL can be removed too. A fresh replay can be prepared from
+the original checkpoint. For other isolated copies under `_work`, supply their directory with
+`-GameDir` instead of a dated replay name.
+
+```powershell
+_work/finish-replay.ps1 -Replay minigame-bay-20261127-001232143
+_work/finish-replay.ps1 -Replay minigame-bay-20261127-001232143 -Binaries -Apply
+```
+
 ## 5. Reading an F5 trace
+
+Background F5 traces retain the draw log, shader files and constant-buffer data. Image dumps
+are off by default in background mode. Set `SWR_TRACE_IMAGES=1` for a targeted pixel comparison
+or an offline replay that needs texture images. Foreground F5 keeps its image dumps by default.
 
 `captures/traces/1/trace.txt` lists every operation of one frame in order:
 - `#N CLEAR ...`: clears (target address, color, depth, layer).

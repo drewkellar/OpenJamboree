@@ -38,6 +38,7 @@ Last updated 2026-11-28. Keep this table current with every change (see `AGENTS.
 | Minigame select background | worked around (bug 12): the board shows behind the list instead of black; the real cause is open |
 | Esc | no longer quits on a tap: hold it 1.5 s (the title bar says so) |
 | Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); a stalled output device no longer freezes the game (bug 20). Not checked by ear |
+| Background test evidence | Explicit milestone screenshots, bounded automatic captures, and cleanup for finished replays (bug 23) |
 | Owner checks | M1-M10 and M12 pending. The owner confirmed M11 on the updated runtime (section 7) |
 
 Fastest path to a board with a save (keys): + skips the intro, Q+E at the title, A through the plaza, then in the
@@ -389,6 +390,21 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   the active pad. A board replay and native SDL3 startup are separate from a physical USB/Bluetooth test.
   If an input remapper exposes a Switch pad only as a virtual Xbox controller, the game sees the Xbox layout.
 
+### Bug 23: completed test runs accumulated too much evidence
+
+- The owner found 7,064 images in one Minigame Bay replay. That sweep captured a frame roughly every
+  1.3 seconds. The original captures stayed on disk even after evidence was collected. Replay folders
+  also kept shader caches and full copies of the locally built code DLL.
+- The runner takes screenshots only at requested milestones. Automatic screenshot schedules share a
+  per-launch budget. Background frame traces keep draw data and omit images by default.
+- Use `_work/finish-replay.ps1` to review and clear captures, caches and optional binary copies from
+  a completed replay. The original checkpoints, run saves and logs stay available.
+- The save-library replay helper supports sharing binaries from one immutable build snapshot. Each
+  replay still gets its own working save, configuration and hints.
+- A background validation run wrote one draw trace with zero images. A three-image automated budget
+  held with both schedulers enabled, and an explicit F7 request still produced a separate screenshot.
+  Opting in to F5 images restored the trace previews.
+
 ### Bug 24: uneven playback during Kamek's opening island flyover
 
 - The reported forest scene is in the opening 1920×1080, 60 FPS H.264 movie. The isolated background
@@ -454,9 +470,11 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 | `SWR_BACKGROUND=1` | background test mode: the window sits past the right edge of all monitors, is never activated, has no taskbar or Alt+Tab entry; sound is silenced (still sent to the device so audio timing is unchanged); the real pad, mouse and keyboard are ignored, only posted keys count. F7 captures and logs work as usual. `run.ps1` sets it unless `-Foreground` |
 | `SWR_SPEED=1`, `SWR_SPEED=2` or `SWR_SPEED=4` | startup fast-forward target on OpenGL, for scripted tests. Invalid values use 1x |
 | `SWR_MUTE=1` | silence only, everything else as normal |
-| `SWR_SHOT8_EVERY=N[@s[,max]]` | an F7 capture every N presented frames, optionally from s seconds after the first frame and up to max captures (default 40): shows frame by frame how long a transition or glitch lasts |
-| `SWR_SHOT8_FLAG=N` | while a file `burst.flag` exists in the game folder, an F7 capture every N presents (a test script creates it when OCR sees the screen it wants) |
-| `SWR_TRACE_EVERY=N[@s[,max]]` | an F5 trace every N presents from s seconds, up to max (default 20) |
+| `SWR_SHOT8_EVERY=N[@s[,max]]` | an F7 capture every N presented frames, optionally from s seconds after the first frame and up to max captures (default 40, also subject to the shared screenshot budget) |
+| `SWR_SHOT8_FLAG=N` | while `burst.flag` exists in the game folder, an F7 capture every N presents within the shared screenshot budget |
+| `SWR_TEST_SHOT_LIMIT=N` | total automated F7 captures per launch (default 12, 0 to disable, maximum 3,000). Manual F7 and runner milestones still work |
+| `SWR_TRACE_EVERY=N[@s[,max]]` | an F5 trace every N presents from s seconds, up to max (default one trace) |
+| `SWR_TRACE_IMAGES=0/1` | omit or enable F5 image dumps. Background tests omit them by default. Draw logs, shaders and constant buffers are retained |
 | (F5 trace) | line draws also list the line widths, the shader stage registers and the first 16 vertices' float attributes; every draw lists the provoking vertex |
 | `SWR_AUDIO_STALL_AT=<s>` | test: pause the Windows audio device once after s seconds, to check that a stalled device doesn't freeze the game (bug 20) |
 | `SWR_SINGLE_JOYCON=1` / `SWR_NO_SINGLE_JOYCON=1` | start controller 1 as one Joy-Con / never switch to it (bug 19) |
@@ -636,8 +654,10 @@ pause over 1.5 s. The original 7.2 s stall remains open.
 ## 10. Minigame coverage
 
 Minigame Bay, Free Play, "All" list, 2026-11-26/27, background mode with CPU opponents on Easy and the test
-player pressing A only when the screen waits. Each game ran from the practice screen to the results menu, with a
-capture about every 1.3 s (local only, `_work/save-library/evidence/mg/NNN`). Index = position in the 14 x 8 list.
+player pressing A only when the screen waits. The sweep captured a frame about every 1.3 s. The local evidence
+at `_work/save-library/evidence/mg/NNN` now keeps representative frames for each tested game and the full
+sequences for Hot Cross Blocks (6), Luigi Rescue Operation (64) and Jr.'s Jauntlet (72).
+Index = position in the 14 x 8 list.
 
 - **Played to the results: 107 of 112.** The other 5 (indices 73-77) are still locked ("?") on the test save.
 - **Pro Controller, 82 games:** every one reached its results menu (or, for 1-player challenges, its score screen)
