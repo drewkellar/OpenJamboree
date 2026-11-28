@@ -22,6 +22,7 @@ Built on **SwitchRecomp by MZ Labs** (AGPL v3), with fixes for this game. See [`
 | Fast-forward | F8 cycles 1x, 2x and 4x on OpenGL. Actual speed depends on the scene and hardware |
 | Motion minigames | play as one Joy-Con: press F9, then the right stick (IJKL) tilts and O shakes |
 | Dialogs, text, dice counters, character previews | render (they were clipped away before) |
+| Party Plaza flyover | continuous paving and softer fountain highlights on Windows OpenGL |
 | Board spaces | render along the paths |
 | Minigame select | roulette over the board (bonus, 1 vs 3, 2 vs 2 and 4-player rounds seen) |
 | Button prompts | Follow the active Xbox or Nintendo Switch Pro Controller on Windows OpenGL, including the board turn menu and balloon destination selector |

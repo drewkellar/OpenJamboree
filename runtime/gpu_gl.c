@@ -1104,6 +1104,15 @@ static GLenum wrap(u32 m){ switch(m){ case 0: return GL_REPEAT; case 1: return G
 
 static short samp_ht[4096];
 
+static void jamboree_plaza_sampler(const Tex* t, u32* tsc){
+  /* Lower levels of this rendered lighting atlas produce dark blocks in
+     the plaza. Keep the point-mip sampler on level 0 for this atlas only. */
+  if(g_title_id==0x0100965017338000ull && t && t->is_rt && t->target==GL_TEXTURE_2D &&
+     t->w==2048 && t->h==2048 && t->levels==12 && t->f.ifmt==GL_RGBA16F &&
+     tsc[0]==0x00026092u && tsc[1]==0x000003a2u && tsc[2]==0xfff00000u)
+    tsc[2]&=0xff000000u;  /* preserve the bits above the min/max LOD fields */
+}
+
 static GLuint sampler_get(const u32* tsc){
   u32 hk=2166136261u; for(int i=0;i<8;i++){ hk^=tsc[i]; hk*=16777619u; } hk&=4095;
   for(u32 j=hk;;j=(j+1)&4095){ int e=samp_ht[j]; if(!e) break; if(!memcmp(samps[e-1].tsc,tsc,32)) return samps[e-1].id; }
@@ -2609,6 +2618,7 @@ static void bind_textures(GpuChannel* ch, int stage, Sh* s, GLuint prog){
     if(st->shadow){ if(!((tsc[0]>>9)&1)){ tsc[0]|=1u<<9; tsc[0]=(tsc[0]&~(7u<<10))|(3u<<10); } } else tsc[0]&=~(1u<<9);
     if(t && (t->f.is_int || sread)) tsc[1]=(tsc[1]&~0xF3u)|0x51u;   /* int textures must be NEAREST, LINEAR makes them incomplete */
     if(srgb_raw) tsc[7]|=0x80000000u;
+    jamboree_plaza_sampler(t,tsc);
     if(mb) sids[i]=sampler_get(tsc); else glBindSampler(unit,sampler_get(tsc));
     /* TIC swizzle */
     if(!zc_id && t && (t->target==want || (t->view && t->view_target==want))){ static const GLint sw[8]={GL_ZERO,GL_ZERO,GL_RED,GL_GREEN,GL_BLUE,GL_ALPHA,GL_ONE,GL_ONE};

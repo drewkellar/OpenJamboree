@@ -186,6 +186,15 @@ With `SWR_SLOW_FRAME_MS=50`, compare `performance.txt` over the 20 seconds after
 first appears in `Recomp.log`. Record the longest frame gap, counts above 50 ms, and texture work in
 the slow frames. Keep the timing logs and clean up generated caches and replay binaries after checking.
 
+## Party Plaza overview and balloon departure
+
+Use a fresh save or a checkpoint from after the opening movie and before the plaza tutorial. At the title,
+press L+R, select one player and confirm the character. Advance Toad's dialogue until the first overhead
+view. Check that the paving forms continuous brick courses around the fountain, including the far side
+by the balloon stairs. Continue through the first departure and check the paving from the low and high
+cameras. Record any changes to the fountain basin and jets separately. A capture at the overhead dialogue
+and one during departure are enough to review this path.
+
 ## When something breaks
 
 1. **Find the change.** Most fixes have a switch that turns them off (`grep -n 'getenv("SWR_' runtime/*.c`). Run

@@ -17,6 +17,7 @@ Last updated 2026-11-28. Keep this table current with every change (see `AGENTS.
 | Pressing L+R at the title | **fixed** (bug 4): save is created, player-count screen, Party Plaza hub |
 | Saves | `bqSaveData`, `bqSaveData2` written to `<name>_data/save/user/`; intro skippable (+) once a save exists |
 | Menus | player count, character select (3D preview), Party Plaza hub (walk, talk, Toad's tutorial), balloon tour and mode list (`menu01.nro`), party rules, opponent/board setup |
+| Party Plaza flyover | repaired blocky paving and reduced harsh water highlights on Windows OpenGL (bug 27) |
 | Boards | all seven load and play their first turn (section 9). Mega Wiggler's Tree Party (`bd01.nro`) plays further: intro, dice/items/board menu, HUD, CPU turns, minigame and back, autosave, 55-60 FPS. Full 10-turn parties not played through yet |
 | Minigames | **107 of 112** played from practice to the results in Minigame Bay (section 10); the other 5 are locked on the test save. Sandwiched also played inside a party, back to the board |
 | Fast-forward | The owner confirmed fast-forward works on the updated OpenGL runtime. Heavy scenes in the opening fell short of the targets |
@@ -437,6 +438,28 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   opened fell from 668 ms to 622 ms. Both runs had six gaps over 50 ms. Texture work in the slowest
   frame was 297 ms before and 316 ms after, so the pair does not isolate a board-wide speedup.
 
+### Bug 27: blocky paving and bright fountain reflections in the Party Plaza flyover
+
+- Reproduced the dark blocks across the paving in the first-visit overview and during the approach to
+  balloon departure, on Windows OpenGL with an RTX 4060 Ti. The user's console reference shows regular
+  paving and less intense fountain highlights.
+- Decode-to-RGBA mode, disabling anisotropic filtering, and forcing shadow comparison to pass all
+  left the paving pattern visible. The trace showed a 2048 × 2048 RGBA16F render target sampled through
+  a 12-level lighting atlas. Clamping that atlas alone to level 0 restored the paving and lawn shading.
+- The OpenGL sampler now limits only the observed atlas and sampler combination in Jamboree to level 0.
+  The other texture filters remain in use. The trace found all 12 source render targets, so the reason the
+  lower levels produce the wrong lighting remains open.
+- A trial that clamped every cubemap to level 0 darkened the jets. The proper correction is in the Maxwell
+  shader translator. `TEX.B` has separate bit positions for the LOD and immediate-offset fields. Reading
+  the bound `TEX` positions made the bindless samples use implicit mip selection. The corrected decoder
+  restores the encoded levels for the water shaders while leaving ordinary filtering enabled. Translating
+  three traced plaza shaders restored 49 explicit LOD samples with zero unsupported instructions.
+  [Maxwell texture instruction encoding](https://github.com/envytools/envytools/blob/master/envydis/gm107.c).
+- The combined Windows OpenGL build displayed regular brick courses around the fountain in the first
+  overhead dialogue and in the departure shot. The basin retained its ripples with less white glare, and
+  the jets stayed visible through takeoff. A warm replay reached the island tour. The cold replay
+  still recorded multi-second gaps while loading the island scene.
+
 ## 3. Features added
 
 - `game_dump=` (new `[Game]` section in the game's `.ini`): exefs and romfs are read from the user's own extracted
@@ -566,6 +589,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 | Date | Where | What | State |
 | --- | --- | --- | --- |
+| 2026-11-28 | First-visit Party Plaza tour and balloon departure | Regular paving from above and during takeoff, with visibly softer fountain reflections. | verified in background Windows OpenGL (bug 27) |
 | 2026-11-28 | Rainbow Galleria, cold board entry | Baseline and updated background replays opened the board; the longest frame gap fell in this pair, with six gaps over 50 ms in both. | exact untile output and faster CPU routine verified; repeat board timing before attributing a change (bug 26) |
 | 2026-11-28 | Kamek's opening flyover | Matched background runs averaged 53.9 and 58.5 FPS over the sampled opening segment before and after the conversion change. | improvement measured (bug 24) |
 | 2026-11-28 | Hot-Air Balloon | The open destination prompt moved its confirm dot between bottom and right after a layout change. Mock pads exercised SDL3 layout selection, drift, the Switch override and detach/reattach. | background OpenGL and automated input checks passed. Physical controller handoff pending (bug 22) |
@@ -623,8 +647,8 @@ Recheck the intermittent Mega Wiggler Look Around freeze if a subsequent session
 4. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
 5. Board: a waiting player (Mario, on a space further down the path) looked see-through. Check whether that's the
    game's own fade or a rendering bug.
-6. Plaza overview: the paving around the fountain looks noisy from far away (reported; likely the texture's lower
-   mips, ASTC decoded to BC3 on GPUs without ASTC). Not reproduced yet: needs the first-visit plaza tour.
+6. Plaza overview: investigate why the lower levels of the lighting atlas are unsuitable for aerial lighting before
+   removing its sampler workaround.
 7. Hold-to-start ("-/+ Start!" in minigame practice) and other hold inputs with a real pad.
 8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
 9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, and a release check that
