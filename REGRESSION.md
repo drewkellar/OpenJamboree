@@ -31,6 +31,11 @@ Pass when:
   `__pycache__`;
 - every new source file starts with the MZ Labs header and `CHANGELOG.txt` has a line for the change.
 
+For the Windows playtest updater, use `_work/playtest-build.ps1 -GameDir <isolated game folder>`.
+Verify that a successful build replaces a closed game’s executable and saves the previous one in `.playtest`.
+With that executable in use, verify that the current file stays in place and the new one is staged. Close it,
+run the same command with `-ApplyPending`, and compare the DLL, settings, and save hashes with the originals.
+
 The runtime prints the version `0.4.1` in the first line of every game log. A build that says anything else
 (`0.4.1-something`) is not a release build.
 

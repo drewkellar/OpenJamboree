@@ -64,7 +64,9 @@ changed, so the owner can see they're current.
 
 ## Build and test
 
-- Rebuild the runtime: `python/python.exe _work/build.py` (about 30 s) → copy `_work/runtime_test.exe` to `games/Recomp.exe`.
+- For an owner playtest update, run `_work/playtest-build.ps1` on the source checkout they want to test. It applies a
+  successful build when the game is closed and stages it when it is running. Use `-ApplyPending` after exit.
+  To build for an isolated test, use `python/python.exe _work/build.py <output>`.
 - Run with `_work/run.ps1 -Seconds N -Keys "t:vk,t:vk+vk@ms"`. Add `-ShotList "a,b" -Tag t` for specific F7
   captures. Usually one to three screenshots cover a visual check. Path to a board with a save: see `docs/JAMBOREE_PORT.md`.
 - Test runs use background mode (the default in `run.ps1`, `SWR_BACKGROUND=1`): off-screen, never focused, muted,

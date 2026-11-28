@@ -60,9 +60,17 @@ tool/build_tool_linux.sh SwitchRecomp.bin  # Linux tool
 ```
 
 A game folder holds `<Game>` (or `<Game>.exe`), which is a copy of the runtime, plus `<Game>_code.so` /
-`<Game>_code.dll` (the recompiled game), `<Game>_data/`, `<Game>.ini` and `<Game>.log`. **To test a runtime
-change on a game, copy the new runtime over the game's executable** and keep the same name. The tool's
-"Update all games" does that for every game. Windows Explorer sometimes renames the copy; check the name.
+`<Game>_code.dll` (the recompiled game), `<Game>_data/`, `<Game>.ini` and `<Game>.log`.
+
+For a local Windows playtest, run `_work/playtest-build.ps1` from the source checkout you want to test.
+A successful build updates `games/Recomp.exe` when the game is closed and keeps the previous executable
+at `games/.playtest/Recomp.rollback.exe`. If the game is running, close it and run
+`_work/playtest-build.ps1 -ApplyPending` to apply the staged build without recompiling. Use `-GameDir`
+for an isolated install. The script changes only the runtime and its update files.
+
+The launcher’s **Update all games** copies its packaged runtime from `bin/`. Use the playtest build command
+for source-branch builds, since the bundled runtime can be older. Use `_work/build.py <output>` to build an
+isolated runtime without updating a game.
 
 Packaging (what the release has):
 - Windows zip: the whole `SwitchRecomp` folder, without `gcc/`, `python/`, `games/*/*` and `__pycache__`.
