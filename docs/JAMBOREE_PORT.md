@@ -5,13 +5,13 @@ The runtime source in `runtime/` is patched here; every change is in git (`git l
 
 ## 1. Status
 
-Last updated 2026-11-27. Keep this table current with every change (see `AGENTS.md`).
+Last updated 2026-11-28. Keep this table current with every change (see `AGENTS.md`).
 
 | Area | State |
 | --- | --- |
 | Boot, loading screen | works |
 | White screen freeze after the loading screen | **fixed** (bug 1) |
-| Intro movie (bq_op.mp4, H.264 via NVDEC → OpenH264) | works, 60 FPS, ~5 min, unskippable on first boot (same as console) |
+| Intro movie (bq_op.mp4, H.264 via NVDEC → OpenH264) | 60 FPS source, ~3 min 16 s, unskippable on first boot (same as console). See bug 24 for measured playback. |
 | Title screen ("Press L+R") | renders, music plays (SM_BGM_TITLE) |
 | Title screen load | **fixed** (bug 3): no stall, balloon characters no longer black |
 | Pressing L+R at the title | **fixed** (bug 4): save is created, player-count screen, Party Plaza hub |
@@ -33,8 +33,8 @@ Last updated 2026-11-27. Keep this table current with every change (see `AGENTS.
 | Board spaces | **fixed** (bugs 9 and 10): the spaces along the paths show, near and far |
 | Results star graph | **fixed** (bug 17) |
 | Minigame Bay sea | **fixed** (bug 18): no more black stripes |
-| Input | Keyboard and XInput. With the default layout, A confirms Dice Block, X opens Look Around, and Y opens Board (bug 22). `pad_buttons=1` uses Switch positions. F9 switches to one Joy-Con mode |
-| Button prompts with an Xbox pad | OpenGL shows Xbox positions on the board turn menu and balloon destination prompts (bugs 11 and 22) |
+| Input | Windows picks the active Xbox or Switch Pro Controller through SDL3, with XInput fallback. A confirms Dice Block, X opens Look Around, and Y opens Board. `pad_buttons=1` forces Switch positions. F9 switches to one Joy-Con mode |
+| Button prompts | Windows OpenGL follows the active controller for the shared face-button glyphs and balloon destination icons (bugs 11 and 22) |
 | Minigame select background | worked around (bug 12): the board shows behind the list instead of black; the real cause is open |
 | Esc | no longer quits on a tap: hold it 1.5 s (the title bar says so) |
 | Audio | audren mixer runs (DSP-ADPCM voices, BFSTM streams); a stalled output device no longer freezes the game (bug 20). Not checked by ear |
@@ -379,11 +379,32 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
   It registers B for Look Around and Y for Board. Dice Block and Look Around use localized text with inline
   face-button glyphs. The balloon selector uses standalone 64×64 BC4 and BC5 masks for its normal and
   highlighted confirm icons.
-- With `pad_buttons=0`, the Windows runtime removes the extra dice shortcut and registers X for Look Around.
+- The Windows runtime removes the extra dice shortcut and registers guest X for Look Around for either layout.
   It patches the leading glyph in a copy of each resolved label, preserving the localized text. The hooks
   target the v1.1.0 main and shared board module build IDs. OpenGL rotates the identified balloon masks on
-  upload so the bottom dot is filled in both states. `pad_buttons=1` uses the original shortcuts and prompt positions.
-- Re-enter the board if you change layouts during play so the game rebuilds the shortcuts and labels together.
+  upload so the bottom dot is filled in both states for Xbox. The Nintendo layout uses the stock texture
+  positions. Keeping the guest shortcuts and glyph codes consistent lets the prompt positions update
+  during a turn when switching controllers. `pad_buttons=1` forces Switch positions.
+- The Windows backend uses SDL3 gamepad types and recent button or deliberate stick activity to select
+  the active pad. A board replay and native SDL3 startup are separate from a physical USB/Bluetooth test.
+  If an input remapper exposes a Switch pad only as a virtual Xbox controller, the game sees the Xbox layout.
+
+### Bug 24: uneven playback during Kamek's opening island flyover
+
+- The reported forest scene is in the opening 1920×1080, 60 FPS H.264 movie. The isolated background
+  replay reached the same scene. It presented below 60 FPS even with a warm shader cache.
+- The CPU emulates VIC by converting each decoded NV12 picture to RGBA before upload. On x86-64,
+  the converter now handles eight pixels at a time with SSE2. A byte comparison against the scalar
+  path passed for both channel orders and widths from 1 to 1920.
+- Across six five-second samples ending about 27–52 seconds after launch, background OpenGL playback
+  averaged 53.9 FPS before the change and 58.5 FPS afterward on the same machine with a warm cache.
+
+### Bug 25: intermittent freeze entering Look Around
+
+- The owner's image shows Look Around active on Mega Wiggler's Tree Party, turn 2. The available
+  foreground log ended normally and did not contain a matching crash, so the cause is open.
+- An isolated Windows OpenGL replay on the same turn opened Look Around, moved the cursor and
+  returned to the turn menu repeatedly. The game closed normally. The intermittent stall remains open.
 
 ## 3. Features added
 
@@ -512,6 +533,9 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 | Date | Where | What | State |
 | --- | --- | --- | --- |
+| 2026-11-28 | Kamek's opening flyover | Matched background runs averaged 53.9 and 58.5 FPS over the sampled opening segment before and after the conversion change. | improvement measured (bug 24) |
+| 2026-11-28 | Hot-Air Balloon | The open destination prompt moved its confirm dot between bottom and right after a layout change. Mock pads exercised SDL3 layout selection, drift, the Switch override and detach/reattach. | background OpenGL and automated input checks passed. Physical controller handoff pending (bug 22) |
+| 2026-11-28 | Mega Wiggler's Tree Party, turn 2 | Repeatedly opened and exited Look Around from Mario's turn menu and moved the cursor between spaces. | no freeze reproduced (bug 25) |
 | 2026-11-27 | Hot-Air Balloon | Mario Party and Minigame Bay showed the bottom dot with the Xbox layout. A opened Mario Party. On return from the board, the highlighted confirm dot moved between bottom and right as the layout changed. | Passed in background OpenGL (bug 22). |
 | 2026-11-27 | Mega Wiggler's Tree Party, turn 2 | Background input opened Dice Block with A, Look Around with X, and Board with Y. B left the turn menu open and backed out of Look Around. A still confirmed the Items row. Captures showed the bottom, left, and top dots on the turn menu. | Passed with scripted guest input (bug 22). Physical Xbox check pending (M12). |
 | 2026-11-27 | Owner fast-forward trial | F8 saved screenshots and smooth recording started on the November 25 executable. | old runtime replaced (bug 21). The owner confirmed fast-forward worked after launching the updated executable |
@@ -553,9 +577,10 @@ Review images are in `_work/save-library/review-2026-11-26` (local only, not com
 | M9 | Rewards screen | the area below the header is plain black | pending |
 | M10 | Motion minigames | with F9 (one Joy-Con) the right stick tilts and O shakes; do the 25 motion games feel playable? | pending |
 | M11 | Fast-forward audio | Check pitch and continuity at 1x, 2x and 4x during play and when switching back to 1x. | Owner confirmed fast-forward worked after launching the updated executable (bug 21) |
-| M12 | Xbox board and balloon buttons | Use a physical pad to check A (bottom) for Dice Block and the balloon destination, X (left) for Look Around, and Y (top) for Board. Check that B leaves Look Around and that the prompts match. | pending |
+| M12 | Xbox and Switch board and balloon buttons | Switch between physical Xbox and Switch Pro pads while each menu is open. Check A for Dice Block or the balloon destination, X for Look Around, and Y for Board. | pending |
 
 ## 8. Next steps
+Recheck the intermittent Mega Wiggler Look Around freeze if a subsequent session produces a matching stall log.
 1. Record the results of owner checks M1-M10 and M12 in the playtest log (section 7).
 2. First-entry board stalls (2.7-7.2 s, section 9) and small lag spikes during play: use `SWR_SLOW_FRAME_MS=50` and
    match frame timestamps to asset loads. For the reproducible board load hitch, investigate the time outside the

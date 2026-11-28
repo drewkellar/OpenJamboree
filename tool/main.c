@@ -443,6 +443,13 @@ static int update_game(Game *g)
     char exe[MAX_PATH], rt[MAX_PATH];
     game_file(exe, sizeof exe, g, EXE_SUFFIX);
     runtime_path(rt, sizeof rt);
+#ifdef _WIN32
+    char sdl_src[MAX_PATH], sdl_dst[MAX_PATH];
+    path_join(sdl_src, sizeof sdl_src, app.here, "lib\\SDL3.dll");
+    path_join(sdl_dst, sizeof sdl_dst, g->dir, "SDL3.dll");
+    if (file_exists(sdl_src) && !same_file(sdl_src, sdl_dst))
+        CopyFileA(sdl_src, sdl_dst, FALSE); /* XInput remains available if this optional copy fails. */
+#endif
     if (g->up_to_date) return 1;
     if (!CopyFileA(rt, exe, FALSE)) return 0;
     g->up_to_date = 1;

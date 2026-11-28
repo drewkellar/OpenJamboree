@@ -77,15 +77,15 @@ notice) that the recompiler and every recompiled game show when they start.
   driver up to date). Linux and the Steam Deck work through Proton.
 
   Controls
-    Xbox / XInput controller: by label (Xbox A = A, B = B, X = X, Y = Y).
+    Xbox / Nintendo Switch Pro Controller: prompts follow the active pad on OpenGL.
               A confirms the selected Dice Block or balloon destination,
               X opens Look Around, and Y opens Board. OpenGL shows the matching
-              positions. pad_buttons=1 uses Switch positions. Re-enter the board
-              to refresh the turn menu if you change pad_buttons during play.
+              positions. pad_buttons=1 forces Switch positions on any pad.
+              Install.bat supplies SDL3 for native controller detection.
     Keyboard: Arrows = D-Pad, WASD = left stick, IJKL = right stick,
               X/Space = A, Z = B, C = X, V = Y, Q = L, E = R, 1 = ZL, 3 = ZR,
               Enter = +, Backspace = -, U / O = left / right stick click
-              With the default layout, C opens Look Around and V opens Board.
+              C opens Look Around and V opens Board.
     F1 help   F3 screenshot   F4 FPS limit 60 / unlimited   F5 diagnostic trace
     F6 record .mp4 video (Windows)   F7 full-resolution PNG   F8 fast-forward (OpenGL)
     F9 player 1: Pro Controller / one Joy-Con (motion minigames: right stick

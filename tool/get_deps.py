@@ -61,6 +61,8 @@ PKGS = WIN_PKGS if WIN else LINUX_PKGS
 SDL_WHEEL = ('https://files.pythonhosted.org/packages/5d/6e/07ec92ba241b2aa941abf478e96c1474f2c5975b61d84303fbcb2ba1dcc9/'
              'pysdl2_dll-2.32.10-py2.py3-none-manylinux2014_x86_64.whl',
              '12b136c38114ae0f8a85453a879795ba5d61663d98673ba19c36c3008ff00353')
+SDL3_WIN = ('https://github.com/libsdl-org/SDL/releases/download/release-3.4.20/SDL3-3.4.20-win32-x64.zip',
+            '368bed8b24e44ad9ea372990814f2343fcfb9e468abb7f8f4a3bc146c7304752')
 LIB = os.path.join(HERE, 'lib')
 
 
@@ -232,6 +234,28 @@ def system_gcc():
     return not WIN and shutil.which('gcc') is not None
 
 
+def install_win_gamepads():
+    print('SDL3 (native Windows gamepad detection)')
+    dll = os.path.join(LIB, 'SDL3.dll')
+    if os.path.isfile(dll):
+        print('  already there\n')
+        return 0
+    url, sha = SDL3_WIN
+    try:
+        data = fetch(url, sha, os.path.join(LIB, '_downloads', url.rsplit('/', 1)[1]))
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            for source, name in (('LICENSE.txt', 'SDL3-LICENSE.txt'), ('SDL3.dll', 'SDL3.dll')):
+                target = os.path.join(LIB, name)
+                with open(target + '.tmp', 'wb') as out:
+                    out.write(archive.read(source))
+                os.replace(target + '.tmp', target)
+    except (OSError, KeyError, zipfile.BadZipFile) as e:
+        print('  SDL3 installation failed: %s. XInput is still available.\n' % e)
+        return 1
+    print('  done\n')
+    return 0
+
+
 def install_gcc(force=False):
     print('GCC (the compiler that builds the recompiled games)')
     if works():
@@ -258,10 +282,11 @@ def install_gcc(force=False):
 
 
 def main():
-    what = sys.argv[1:] or (['gcc'] if WIN else ['sdl', 'gcc'])
+    what = sys.argv[1:] or (['sdl3', 'gcc'] if WIN else ['sdl', 'gcc'])
     print('SwitchRecomp: installing what is missing (into the SwitchRecomp folder, nothing goes on the system)\n')
     r = 0
     if 'sdl' in what and not WIN: r |= install_sdl()
+    if 'sdl3' in what and WIN: r |= install_win_gamepads()
     if 'gcc' in what: r |= install_gcc(force=os.environ.get('SWR_OWN_GCC') == '1')
     print('All done!' if not r else 'Something failed, see above.')
     return r

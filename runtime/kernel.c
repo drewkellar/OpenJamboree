@@ -649,11 +649,11 @@ static GuestFn jamboree_set_shortcut, jamboree_set_label, jamboree_set_string;
 static u64 jamboree_board_base, jamboree_set_string_pc;
 
 static void jamboree_board_shortcut(CPU* c, u64 entry){
-  if(hid_xbox_layout()){
-    u64 caller=c->x[30]-jamboree_board_base;
-    if(caller==0x3902D4 && c->x[1]==4) c->x[1]=0;  /* Dice Block: normal A selection */
-    if(caller==0x390408 && c->x[1]==2) c->x[1]=4;  /* Look Around: X instead of B */
-  }
+  /* The board commands use the same guest buttons for all layouts. The input
+     backend and icon renderer translate those buttons to the active positions. */
+  u64 caller=c->x[30]-jamboree_board_base;
+  if(caller==0x3902D4 && c->x[1]==4) c->x[1]=0;  /* Dice Block: normal A selection */
+  if(caller==0x390408 && c->x[1]==2) c->x[1]=4;  /* Look Around: X instead of B */
   jamboree_set_shortcut(c,entry);
 }
 
@@ -667,10 +667,8 @@ static int jamboree_label_is(u64 view, const char* name){
 static void jamboree_board_label(CPU* c, u64 entry){
   u64 pane=c->x[0], label=c->x[1], lr=c->x[30];
   u16 from=0, to=0;
-  if(hid_xbox_layout()){
-    if(jamboree_label_is(label,"bd00_pl_dice")){ from=0xE002; to=0xE000; }
-    if(jamboree_label_is(label,"bd00_pl_ctrl_display")){ from=0xE003; to=0xE002; }
-  }
+  if(jamboree_label_is(label,"bd00_pl_dice")){ from=0xE002; to=0xE000; }
+  if(jamboree_label_is(label,"bd00_pl_ctrl_display")){ from=0xE003; to=0xE002; }
   jamboree_set_label(c,entry);
   if(!from || c->pc!=lr || !guest_ok(pane+168,16)) return;
 

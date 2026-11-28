@@ -237,6 +237,55 @@ u64 bl_offset(u32 x_bytes, u32 y, u32 z, u32 width_bytes, u32 height, u32 bh_log
 
 static u8 clamp8(int v){ return v<0? 0 : v>255? 255 : (u8)v; }
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <emmintrin.h>
+
+/* Scale pairs in 32-bit lanes so the limited-range BT.601 sums cannot wrap
+   before rounding. Return eight channels clipped to unsigned bytes. */
+static __m128i vic_channel(__m128i y, __m128i uv, u32 coefficients, __m128i add_lo, __m128i add_hi){
+  __m128i coeff=_mm_set1_epi32((i32)coefficients);
+  __m128i lo=_mm_madd_epi16(_mm_unpacklo_epi16(y,uv),coeff);
+  __m128i hi=_mm_madd_epi16(_mm_unpackhi_epi16(y,uv),coeff);
+  lo=_mm_srai_epi32(_mm_add_epi32(lo,add_lo),8);
+  hi=_mm_srai_epi32(_mm_add_epi32(hi,add_hi),8);
+  return _mm_packus_epi16(_mm_packs_epi32(lo,hi),_mm_setzero_si128());
+}
+#endif
+
+static void vic_rgba_row(u8* row, const u8* y_plane, const u8* uv, u32 width, int rgba){
+  u32 x=0;
+#if defined(__x86_64__) || defined(_M_X64)
+  const __m128i zero=_mm_setzero_si128(), round=_mm_set1_epi32(128);
+  const __m128i bias=_mm_set1_epi16(128), byte_mask=_mm_set1_epi16(255);
+  for(;x+8<=width;x+=8){
+    __m128i y=_mm_loadl_epi64((const __m128i*)(y_plane+x));
+    __m128i chroma=_mm_loadl_epi64((const __m128i*)(uv+x));
+    y=_mm_sub_epi16(_mm_unpacklo_epi8(y,zero),_mm_set1_epi16(16));
+    __m128i u=_mm_sub_epi16(_mm_and_si128(chroma,byte_mask),bias);
+    __m128i v=_mm_sub_epi16(_mm_srli_epi16(chroma,8),bias);
+    u=_mm_unpacklo_epi16(u,u); v=_mm_unpacklo_epi16(v,v);
+    const __m128i u_green=_mm_set1_epi32(0xFF9C); /* -100 * U */
+    __m128i g_lo=_mm_add_epi32(round,_mm_madd_epi16(_mm_unpacklo_epi16(u,zero),u_green));
+    __m128i g_hi=_mm_add_epi32(round,_mm_madd_epi16(_mm_unpackhi_epi16(u,zero),u_green));
+    __m128i red=vic_channel(y,v,(409u<<16)|298u,round,round);
+    __m128i green=vic_channel(y,v,((u32)(u16)-208<<16)|298u,g_lo,g_hi);
+    __m128i blue=vic_channel(y,u,(516u<<16)|298u,round,round);
+    __m128i first=_mm_unpacklo_epi8(rgba? red : blue,green);
+    __m128i second=_mm_unpacklo_epi8(rgba? blue : red,_mm_set1_epi8(-1));
+    _mm_storeu_si128((__m128i*)(row+x*4),_mm_unpacklo_epi16(first,second));
+    _mm_storeu_si128((__m128i*)(row+x*4+16),_mm_unpackhi_epi16(first,second));
+  }
+#endif
+  for(;x<width;x++){
+    int c=((int)y_plane[x]-16)*298, d=(int)uv[x&~1u]-128, e=(int)uv[(x&~1u)+1]-128;
+    u8* o=row+x*4;
+    o[rgba? 0 : 2]=clamp8((c+409*e+128)>>8);
+    o[1]=clamp8((c-100*d-208*e+128)>>8);
+    o[rgba? 2 : 0]=clamp8((c+516*d+128)>>8);
+    o[3]=255;
+  }
+}
+
 static void vic_put(u8* base, u64 off, const u8* src, u32 n, u64 lim){ if(off+n<=lim) memcpy(base+off,src,n); }
 void gpu_note_ext_write(const void* p, u64 len);   /* textures over a VIC output are checked again on their next use */
 
@@ -263,13 +312,9 @@ static void vic_execute(u32* r){
     u8* py=iova_ptr(ly,lim); if(!py){ py=iova_ptr(ly,(u64)pitch*h); lim=(u64)pitch*h; }
     if(!py){ static int said; if(said<4){ said++; LOG("video: VIC output at iova %llx not mapped\n",(unsigned long long)ly); } return; }
     static u8* row; static u32 rcap; if(rcap<pitch){ row=realloc(row,pitch); rcap=pitch; }
-    int ri= fmt==0x1F? 0 : 2, bi= fmt==0x1F? 2 : 0;
     for(u32 y=0;y<h;y++){
       const u8* Y=fy+(u64)y*fw; const u8* UV=fuv+(u64)(y/2)*fw;
-      for(u32 x=0;x<w;x++){
-        /* BT.601, limited range */
-        int c=((int)Y[x]-16)*298, d=(int)UV[x&~1u]-128, e=(int)UV[(x&~1u)+1]-128; u8* o=row+x*4;
-        o[ri]=clamp8((c+409*e+128)>>8); o[1]=clamp8((c-100*d-208*e+128)>>8); o[bi]=clamp8((c+516*d+128)>>8); o[3]=255; }
+      vic_rgba_row(row,Y,UV,w,fmt==0x1F);
       if(!blk) vic_put(py,(u64)y*pitch,row,w*4,lim);
       else for(u32 xb=0;xb<w*4;xb+=16){ u32 n=w*4-xb<16? w*4-xb : 16; vic_put(py,bl_offset(xb,y,0,pitch,sh,bh,0),row+xb,n,lim); } }
     gpu_note_ext_write(py,lim);

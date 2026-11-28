@@ -291,7 +291,8 @@ def build_runtime(cc, out, target_win, backend, say, opt='2'):
     evk_libs = [os.path.join(evk, 'libedenvk.a'), os.path.join(evk, 'libsirit.a')]
     edenvk = gl and backend in ('win32', 'x11') and all(os.path.isfile(x) for x in evk_libs) and not os.environ.get('SWR_NO_EDENVK')
     if not edenvk: srcs += [os.path.join(RT, 'edenvk_stub.c')]
-    if target_win and backend == 'win32': srcs += [os.path.join(RT, 'rec_win32.c')]   # F6 recorder, Media Foundation
+    if target_win and backend == 'win32':
+        srcs += [os.path.join(RT, s) for s in ('rec_win32.c', 'pad_win32.c')]
     # NVDEC/VIC video: link OpenH264 (BSD) statically if we have it for this target
     oh = os.path.join(RT, 'oh264', 'win' if target_win else 'lin')
     h264_libs = [os.path.join(oh, 'libdecoder.a'), os.path.join(oh, 'libcommon.a')]
@@ -541,6 +542,13 @@ def main():
         else:
             say('Compiling the runtime (%s)...' % backend)
             build_runtime(cc, exe, target_win, backend, say)
+    if target_win and backend == 'win32':
+        sdl = os.path.join(HERE, 'lib', 'SDL3.dll')
+        if os.path.isfile(sdl):
+            dst = os.path.join(os.path.dirname(exe), 'SDL3.dll')
+            if os.path.abspath(sdl) != os.path.abspath(dst):
+                shutil.copyfile(sdl, dst + '.tmp')
+                replace_retry(dst + '.tmp', dst)
     if not target_win: os.chmod(exe, 0o755)
     say('Done: %s' % exe)
 
