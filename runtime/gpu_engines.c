@@ -708,9 +708,15 @@ void fermi2d_method(GpuChannel* ch, u32 m, u32 v){
     i64 dudx=(i64)(((u64)r[0x231]<<32)|r[0x230]); i64 dvdy=(i64)(((u64)r[0x233]<<32)|r[0x232]);
     i64 sx0=(i64)(((u64)r[0x235]<<32)|r[0x234]); i64 sy0=(i64)(((u64)r[0x237]<<32)|r[0x236]);
     double sx=(double)sx0/4294967296.0, sy=(double)sy0/4294967296.0, sdx=(double)dudx/4294967296.0, sdy=(double)dvdy/4294967296.0;
+    int corner=r[0x223]&1;
     /* CENTER origin (sample_mode bit0 == 0): coords address texel centers */
-    if(!(r[0x223]&1)){ sx-=sdx*0.5; sy-=sdy*0.5; if(sx<0) sx=0; if(sy<0) sy=0; }
-    if(r3d_blit(&src,&dst,dx0,dy0,dw,dh,sx,sy,sdx,sdy)) return;
+    if(!corner){ sx-=sdx*0.5; sy-=sdy*0.5; if(sx<0) sx=0; if(sy<0) sy=0; }
+    /* Convert corner-origin coordinates to the integer source rectangle
+       for the GPU blit. A 2:1 mip copy starts at (1,1); its source edges
+       should start at (0,0) so the first destination pixel samples (1,1). */
+    double blit_x=corner? sx-(double)(dudx>>33) : sx;
+    double blit_y=corner? sy-(double)(dvdy>>33) : sy;
+    if(r3d_blit(&src,&dst,dx0,dy0,dw,dh,blit_x,blit_y,sdx,sdy)) return;
     extern int g_gl; extern void gpu_gl_rt_flush(u64); extern void gpu_gl_rt_reload(u64);
     if(g_gl){ gpu_gl_rt_flush(src.addr); gpu_gl_rt_flush(dst.addr); }
     u32 bpp=fmt_bpp_2d(dst.format), sbpp=fmt_bpp_2d(src.format); if(bpp!=sbpp) bpp=sbpp;

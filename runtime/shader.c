@@ -1110,7 +1110,13 @@ static void inst(Ctx* c, u32 idx, u64 w, const Op* op){
     if(id==O_TXD && B(w,54,1)){ if(!track_handle(c,idx,cr,&blbank,&bloff)){ unsupported(c,"TXD.B (untracked handle)",w); break; } off=bloff/4; cr++; bl=1; }
     int type=(int)(ty>>1), array=ty&1; if(type>3) type=3;
     int dc=0, aoffi=0, ptp=0; u32 blod=0;
-    if(eid==O_TEX){ dc=B(w,50,1); aoffi=B(w,54,1); blod=B(w,55,3); }
+    if(eid==O_TEX){
+      dc=B(w,50,1);
+      /* TEX.B stores its LOD and offset flags in the space used by the
+         bound instruction's constant buffer handle. */
+      aoffi=B(w,bl? 36 : 54,1);
+      blod=B(w,bl? 37 : 55,3);
+    }
     else if(eid==O_TLD4){ u32 ot= tld4b? B(w,36,2) : B(w,54,2); dc=B(w,50,1); aoffi=ot==1; ptp=ot==2; }
     else if(eid==O_TLD){ blod= B(w,55,1)? 3 : 1; aoffi=B(w,35,1); }
     int dim= type==0? 1 : type==1? 2 : 3, odim=dim;
