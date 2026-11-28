@@ -191,8 +191,10 @@ the slow frames. Keep the timing logs and clean up generated caches and replay b
 Use a fresh save or a checkpoint from after the opening movie and before the plaza tutorial. At the title,
 press L+R, select one player and confirm the character. Advance Toad's dialogue until the first overhead
 view. Check that the paving forms continuous brick courses around the fountain, including the far side
-by the balloon stairs. Continue through the first departure and check the paving from the low and high
-cameras. Record any changes to the fountain basin and jets separately. A capture at the overhead dialogue
+by the balloon stairs. The lighting atlas should retain its normal mip selection. Its 2:1 corner-origin
+copies should start at source rectangle edge `(0,0)` for a first sample at `(1,1)`. Continue through the
+first departure and check the paving from the low and high cameras. Record any changes to the fountain
+basin and jets separately. A capture at the overhead dialogue
 and one during departure are enough to review this path.
 
 ## When something breaks

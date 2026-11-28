@@ -446,9 +446,15 @@ Keyboard (runtime defaults): arrows = D-pad, WASD = left stick, X/Space = A, Z =
 - Decode-to-RGBA mode, disabling anisotropic filtering, and forcing shadow comparison to pass all
   left the paving pattern visible. The trace showed a 2048 × 2048 RGBA16F render target sampled through
   a 12-level lighting atlas. Clamping that atlas alone to level 0 restored the paving and lawn shading.
-- The OpenGL sampler now limits only the observed atlas and sampler combination in Jamboree to level 0.
-  The other texture filters remain in use. The trace found all 12 source render targets, so the reason the
-  lower levels produce the wrong lighting remains open.
+- Pixel readbacks matched the copied source render targets exactly at each checked level. The game builds
+  the lower levels with corner-origin, bilinear Fermi 2D blits. For the 2:1 copies it passes `(1,1)` as the
+  first sample. OpenGL expects source rectangle edges, so passing `(1,1)` directly shifted the sampling
+  footprint one texel on each axis. Each mip was used as the next source, so the
+  shift accumulated down the chain. [NVIDIA Fermi 2D sample-mode fields](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/common/sdk/nvidia/inc/class/cl902d.h).
+- The GPU blit now converts the corner-origin position to integer rectangle edges by subtracting the whole
+  texels in half a sampling step. The trial reduced the mean error against a 2 × 2 average of the parent
+  level to the scale of half-float rounding and restored the paving with lower levels enabled. Removed
+  the plaza-specific mip clamp.
 - A trial that clamped every cubemap to level 0 darkened the jets. The proper correction is in the Maxwell
   shader translator. `TEX.B` has separate bit positions for the LOD and immediate-offset fields. Reading
   the bound `TEX` positions made the bindless samples use implicit mip selection. The corrected decoder
@@ -589,6 +595,7 @@ Everything seen in manual and scripted play goes here first, fixed or not, so no
 
 | Date | Where | What | State |
 | --- | --- | --- | --- |
+| 2026-11-28 | Party Plaza lighting follow-up | Isolated the mip shift to the Fermi 2D corner-origin conversion. The final Windows OpenGL replay showed continuous paving in the overhead dialogue and on takeoff with the full mip chain enabled. | underlying blit fixed (bug 27) |
 | 2026-11-28 | First-visit Party Plaza tour and balloon departure | Regular paving from above and during takeoff, with visibly softer fountain reflections. | verified in background Windows OpenGL (bug 27) |
 | 2026-11-28 | Rainbow Galleria, cold board entry | Baseline and updated background replays opened the board; the longest frame gap fell in this pair, with six gaps over 50 ms in both. | exact untile output and faster CPU routine verified; repeat board timing before attributing a change (bug 26) |
 | 2026-11-28 | Kamek's opening flyover | Matched background runs averaged 53.9 and 58.5 FPS over the sampled opening segment before and after the conversion change. | improvement measured (bug 24) |
@@ -647,13 +654,11 @@ Recheck the intermittent Mega Wiggler Look Around freeze if a subsequent session
 4. Bug 12's real cause (why the console keeps the snapshot copy), then drop the workaround.
 5. Board: a waiting player (Mario, on a space further down the path) looked see-through. Check whether that's the
    game's own fade or a rendering bug.
-6. Plaza overview: investigate why the lower levels of the lighting atlas are unsuitable for aerial lighting before
-   removing its sampler workaround.
-7. Hold-to-start ("-/+ Start!" in minigame practice) and other hold inputs with a real pad.
-8. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
-9. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, and a release check that
+6. Hold-to-start ("-/+ Start!" in minigame practice) and other hold inputs with a real pad.
+7. Why the hints rebuild is slower (see above) before using it; audio by ear, performance on long sessions.
+8. Packaging: fold `get_gxx.py` into `tool/get_deps.py`, make `--link` the tool's default, and a release check that
    no file in the package came from the dump. `CHANGELOG.txt` has an OpenJamboree section, kept current per change.
-10. Identify the work limiting fast-forward in heavy scenes and measure same-landmark progression on a CPU board
+9. Identify the work limiting fast-forward in heavy scenes and measure same-landmark progression on a CPU board
     turn and in an active minigame. See `docs/handoff/fast-forward.md`.
 
 ## 9. Board coverage
