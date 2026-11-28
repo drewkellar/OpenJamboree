@@ -325,6 +325,8 @@ int  romfs_read(u64 off, void* dst, u64 size);
 typedef struct { u64 buttons; i32 lx, ly, rx, ry; int touch, tx, ty; } PadState;
 
 extern PadState g_pad;
+extern int g_pad_icons_xbox;
+static inline int hid_xbox_layout(void){ return __atomic_load_n(&g_pad_icons_xbox,__ATOMIC_RELAXED); }
 extern volatile int g_quit;
 void video_init(const char* title);
 void video_present_rgba(const u32* px, int w, int h, int stride);   /* final RGBA8 image */

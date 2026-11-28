@@ -215,7 +215,7 @@ typedef struct Tex {
   u32 huge_w, huge_h;   /* a texture too big for the host: the size the game gave it */
   u32 extw;   /* g_extw_gen when the video engine writes were last compared with this texture */
   u32 skip; u64* lhash; u8* lmask; u32 vt_next;   /* virtual textures: top mips left out, per layer hash, layers to upload */
-  u8 icons, icons_on;   /* the game's button icon sheet (1 + k_icon_sheets index), and whether its icons were swapped */
+  u8 icons, icons_on;   /* prompt texture (1 + sheet index, or ICON_BALLOON) and which layout is uploaded */
   struct Tex* next;
 } Tex;
 static int g_ww; static int ww_dirty(u64 ga, u64 len, u32 since); static u64 st_tex_wwskip;
@@ -451,12 +451,15 @@ static void bc_rows(void* c, u32 a, u32 b){ DecJob* j=c; u32 bx=(j->w+3)/4; u32 
    the right, X on the left, Y on top. So those sheets are decoded on the cpu (BC7 -> RGBA8) and the diamond cells
    swapped: right <-> bottom, left <-> top. The sheets are found by a sampled hash of their guest memory; cells are
    (cw+1) x (ch+1) apart from (1,1), rows stored bottom-up. Nothing of the game's art ships: the cells are moved. */
-extern int g_pad_icons_xbox;   /* svc_hid.c, set by the backend: 1 = face buttons mapped by label, icons follow the Xbox positions */
 typedef struct { u64 fp; u32 w, cw, ch, cols; } IconSheet;
 static const IconSheet k_icon_sheets[]={
   {0x555ab61b7a6d52bcull,512,72,73,7},     /* small */
   {0xa88538fc384ff424ull,512,96,95,5},     /* middle */
   {0x86ef3a21bec9d05full,1024,180,177,5}}; /* large (2 layers, the diamonds are in layer 0) */
+enum { ICON_BALLOON=1+sizeof k_icon_sheets/sizeof *k_icon_sheets };
+static int balloon_icon_hash(u64 hash){
+  return hash==0xf077c76ff16b8ef4ull || hash==0x36f53ed7d1545f07ull;  /* normal BC4 and highlighted BC5 */
+}
 static int icon_sheet_of(u64 gva, u32 w, u32 h){
   if(h!=1024 || (w!=512 && w!=1024) || getenv("SWR_NO_ICON_SWAP")) return -1;
   u64 n=(u64)w*h; u64* b=malloc(n); if(!b) return -1;   /* BC7: one byte a texel */
@@ -469,6 +472,29 @@ static void icon_cells_swap(u8* px, u32 W, u32 H, const IconSheet* s, int a, int
   if(ax+s->cw>W || bx+s->cw>W || ay+s->ch>H || by+s->ch>H) return;
   u8 tmp[1024*4]; for(u32 y=0;y<s->ch;y++){ u8* p=px+((size_t)(ay+y)*W+ax)*4; u8* q=px+((size_t)(by+y)*W+bx)*4;
     memcpy(tmp,p,s->cw*4); memcpy(p,q,s->cw*4); memcpy(q,tmp,s->cw*4); } }
+
+/* The balloon confirm textures are separate 64x64 RGTC masks. BC5 stores two
+   BC4 blocks per tile. Rotate each channel's indices and preserve its endpoints. */
+static void balloon_icon_rotate(u8* bc, u32 block_bytes){
+  enum { BLOCKS=16 };
+  u64 rotated[BLOCKS*BLOCKS*2];
+  u32 channels=block_bytes/sizeof(u64);
+  for(int by=0;by<BLOCKS;by++) for(int bx=0;bx<BLOCKS;bx++){
+    const u8* src=bc+(by*BLOCKS+bx)*block_bytes;
+    u64* dst=rotated+(bx*BLOCKS+BLOCKS-1-by)*channels;
+    for(u32 c=0;c<channels;c++){
+      u64 block;
+      memcpy(&block,src+c*sizeof block,sizeof block);
+      u64 out=block&0xFFFFu;
+      for(int y=0;y<4;y++) for(int x=0;x<4;x++){
+        u64 index=(block>>(16+3*(4*y+x)))&7;
+        out|=index<<(16+3*(4*x+3-y));
+      }
+      dst[c]=out;
+    }
+  }
+  memcpy(bc,rotated,BLOCKS*BLOCKS*block_bytes);
+}
 
 static void tex_upload(Tex* t){ st_tex_up+=t->size;
   { static int done; const char* e= done? NULL : getenv("SWR_DUMPTEX"); u32 dw=0, dh=0; if(e && sscanf(e,"%ux%u",&dw,&dh)==2 && t->w==dw && t->h==dh && t->size){   /* debug: raw guest bytes of one texture */
@@ -503,6 +529,10 @@ static void tex_upload(Tex* t){ st_tex_up+=t->size;
       if(t->bl){ u32 lbd=t->bd; while(lbd>0 && ld<=(1u<<(lbd-1))) lbd--;   /* 3D: block depth (LUTs) */
         DsJob dj={lin,src,lsz,rowb,th,lbh,lbd}; pf_run(ds_rows,&dj,ld*th,(u32)((256u<<10)/(rowb? rowb : 1))); }
       else { for(u32 y=0;y<th;y++) memcpy(lin+(u64)y*rowb,src+(u64)y*t->pitch,rowb); }
+      if(t->icons && l==0 && layer==0){
+        t->icons_on=(u8)hid_xbox_layout();
+        if(t->icons==ICON_BALLOON && t->icons_on && balloon_icon_hash(t->hash)) balloon_icon_rotate(lin,f->bpp);
+      }
       const u8* up=lin; u8* dec=NULL;
       if(f->dec==20){ u64 n=(u64)lw*lh*ld; u16* h=malloc((size_t)n*8+8);
         if(h){ for(u64 k=0;k<n;k++){ u32 v; memcpy(&v,lin+k*4,4); u16* q=h+k*4;
@@ -525,8 +555,11 @@ static void tex_upload(Tex* t){ st_tex_up+=t->size;
             else if(f->dec==11){ rr=(v&31)*255/31; gg=((v>>5)&31)*255/31; bb=((v>>10)&31)*255/31; aa=(v>>15)? 255 : 0; }
             else { rr=(v&31)*255/31; gg=((v>>5)&63)*255/63; bb=((v>>11)&31)*255/31; aa=255; }
             o[(size_t)y*lw+x]=rr|(gg<<8)|(bb<<16)|(aa<<24); } }
-        if(t->icons && l==0 && layer==0){ t->icons_on=(u8)g_pad_icons_xbox;
-          if(g_pad_icons_xbox){ const IconSheet* s=&k_icon_sheets[t->icons-1]; icon_cells_swap(dec,lw,lh,s,2,5); icon_cells_swap(dec,lw,lh,s,3,4); } }
+        if(t->icons && t->icons<ICON_BALLOON && t->icons_on && l==0 && layer==0){
+          const IconSheet* s=&k_icon_sheets[t->icons-1];
+          icon_cells_swap(dec,lw,lh,s,2,5);
+          icon_cells_swap(dec,lw,lh,s,3,4);
+        }
         up=dec; }
       { static int dmp=-1, nd; if(dmp<0) dmp=getenv("SWR_DUMP_TEX")!=NULL;
         if(dmp && l==0 && layer==0 && nd<20 && (f->astc || (!f->compressed && f->bpp==4))){ char pth[128]; snprintf(pth,sizeof pth,"tex_%02d_%llx_%ux%u.ppm",nd++,(unsigned long long)t->gva,lw,lh);
@@ -983,7 +1016,7 @@ static Tex* tex_from_tic_(u32* tic){
   for(Tex* t=texh[hkey(gva)];t;t=t->next){
     if(t->gva==gva && ((t->w==w && t->h==h) || (t->huge_w==w && t->huge_h==h)) && t->d==d && t->fkey==fkey && t->target==target && !t->is_rt){
       t->last_used=g_frame;
-      if(t->icons && t->icons_on!=(u8)g_pad_icons_xbox) tex_upload(t);   /* pad_buttons changed (F1) */
+      if(t->icons && t->icons_on!=(u8)hid_xbox_layout()) tex_upload(t);   /* pad_buttons changed (F1) */
       if(t->skip){ if((i32)(g_frame-t->vt_next)>=0) vt_refresh(t,0); return t; }
       if(g_extw_gen!=t->extw && tex_ext_written(t)){ t->stable=0; t->next_check=g_frame; t->frame_checked=g_frame-1;
         static u32 n; if(++n%600==1) LOG("video: %u texture refreshes after video engine writes (frame %u)\n",n,(u32)g_frame); }
@@ -1037,6 +1070,9 @@ static Tex* tex_from_tic_(u32* tic){
   u64 sz=0; u32 dd= target==GL_TEXTURE_3D? d : 1; for(u32 l=0;l<levels;l++) sz+=bl? bl_level_size(w,h,dd,&f,bh,bd,l,NULL) : (u64)pitch*((h+f.bh-1)/f.bh);
   if(target!=GL_TEXTURE_3D){ if(bl && d>1) sz=layer_stride(sz,bh,bd,g_new_tws); sz*=d; }
   t->size=sz; t->hash=mem_hash(gva,sz); t->frame_checked=g_frame; t->last_used=g_frame;
+  u32 fmt=tic[0]&0x7F;
+  if(w==64 && h==64 && d==1 && levels==1 && target==GL_TEXTURE_2D && (fmt==0x27 || fmt==0x28) &&
+     balloon_icon_hash(t->hash) && !getenv("SWR_NO_ICON_SWAP")) t->icons=ICON_BALLOON;
   tex_upload(t); tex_ww_note(t);
   return t; }
 

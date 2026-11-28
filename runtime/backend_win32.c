@@ -88,6 +88,8 @@ typedef struct { DWORD dwPacketNumber; XGP Gamepad; } XST;
 
 typedef DWORD (WINAPI *XGetState)(DWORD, XST*);
 static XGetState xget;
+void win_gamepads_init(void);
+int win_gamepads_poll(int by_position, PadState* out, int* xbox_layout);
 
 static void xinput_load(void){
   const char* dl[]={"xinput1_4.dll","xinput1_3.dll","xinput9_1_0.dll"};
@@ -166,7 +168,7 @@ void backend_rec_state(int on){ if(g_hwnd) PostMessageA(g_hwnd,WM_APP+8,(WPARAM)
 static const char* inversion_names[]={"Normal", "Left / right inverted", "Up / down inverted", "Both inverted"};
 static const char* const cw_keys[][2]={
   {"D-Pad","Arrows"}, {"Left stick","W A S D"}, {"Right stick","I J K L (or the mouse)"}, {"A  B  X  Y","X/Space  Z  C  V"},
-  {"L  R  ZL  ZR","Q  E  1  3"}, {"+  -","Enter  Backspace"}, {"Stick clicks","U  O"}, {"Controller","Xbox (XInput) pad"}};
+  {"L  R  ZL  ZR","Q  E  1  3"}, {"+  -","Enter  Backspace"}, {"Stick clicks","U  O"}, {"Controller","Xbox / Nintendo Switch Pro"}};
 static const char* const cw_fkeys[][2]={
   {"F1","This page"}, {"F3","Screenshot"}, {"F4","FPS limit on/off"}, {"F5","Diagnostic trace"},
   {"F6","Record video"}, {"F7","Full resolution capture"}, {"F8","Fast-forward (OpenGL)"}, {"F9","Pro Controller / one Joy-Con"}, {"F11","Fullscreen"}, {"Esc","Hold 1.5 s to quit"}};
@@ -357,7 +359,9 @@ static void win_thread(void* arg){ (void)arg;
 void video_init(const char* title){
   snprintf(g_title,sizeof g_title,"%s - SwitchRecomp  (F1 help)",title);
   { const char* e=getenv("SWR_BACKGROUND"); g_background= e && *e=='1'; }
-  xinput_load(); timeBeginPeriod(1);
+  xinput_load();
+  if(!g_background) win_gamepads_init();
+  timeBeginPeriod(1);
   g_ready=CreateEventA(NULL,TRUE,FALSE,NULL);
   _beginthread(win_thread,1<<20,NULL);
   WaitForSingleObject(g_ready,INFINITE);
@@ -425,8 +429,14 @@ void video_poll(void){
     }
     rx=(g_mouse_invert&1)?-g_mouse_rx:g_mouse_rx; ry=(g_mouse_invert&2)?-g_mouse_ry:g_mouse_ry;
   }
-  { extern int g_pad_icons_xbox; g_pad_icons_xbox=!g_pad_by_position; }   /* the on-screen button diamonds follow the mapping (gpu_gl.c) */
-  if(xget && focused){
+  static int xbox_layout=1;
+  if(focused || g_background) xbox_layout=!g_pad_by_position;
+  PadState pad;
+  if(focused && win_gamepads_poll(g_pad_by_position,&pad,&xbox_layout)){
+    b|=pad.buttons;
+    if(!lx&&!ly){ lx=dz(pad.lx); ly=dz(pad.ly); }
+    if(!rx&&!ry){ rx=dz(pad.rx); ry=dz(pad.ry); }
+  } else if(xget && focused){
     for(DWORD i=0;i<4;i++){ XST s; if(xget(i,&s)) continue; XGP* g=&s.Gamepad; WORD x=g->wButtons;
       /* by label (default): xbox A = A (confirm), B = B, X = X, Y = Y. pad_buttons=1 maps by position like a Switch
          pad instead: A right (xbox B), B bottom (xbox A), X top (xbox Y), Y left (xbox X) */
@@ -439,6 +449,7 @@ void video_poll(void){
       if(!lx&&!ly){ lx=dz(g->sThumbLX); ly=dz(g->sThumbLY); } if(!rx&&!ry){ rx=dz(g->sThumbRX); ry=dz(g->sThumbRY); }
       break; }
   }
+  __atomic_store_n(&g_pad_icons_xbox,xbox_layout,__ATOMIC_RELAXED);
   /* stick-as-button bits 16..23 */
   if(lx<-16000) b|=1ull<<16; if(ly>16000) b|=1ull<<17; if(lx>16000) b|=1ull<<18; if(ly<-16000) b|=1ull<<19;
   if(rx<-16000) b|=1ull<<20; if(ry>16000) b|=1ull<<21; if(rx>16000) b|=1ull<<22; if(ry<-16000) b|=1ull<<23;

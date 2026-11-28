@@ -159,6 +159,25 @@ Prepare a replay with `-ShareBinaries` from an immutable build snapshot on the s
 Check that both binaries are hard links and the save files and optional hints are independent copies.
 After cleaning up the replay binaries, verify that the snapshot can still seed another replay.
 
+## Xbox board and balloon controls
+
+Use Windows OpenGL with `pad_buttons=0`. In the balloon, highlight Mario Party and another unlocked destination.
+Each destination should show the bottom dot and open when you press A. Return from a board to check
+the highlighted confirm icon too. Connect an Xbox and Switch Pro Controller. On the balloon and
+turn menu, move a stick on each controller to switch between them. Nintendo A is the right button.
+Verify that the prompt changes with the input. Disconnect the active pad and confirm the other pad
+works. With `pad_buttons=1`, the right dot should be filled and Xbox B should confirm.
+
+With the Xbox layout on the board turn menu, check the bottom dot on Dice Block, the left dot on Look Around, and the top dot
+on Board. Test X and B before rolling. X opens Look Around, B returns from Look Around, and pressing B
+from the turn menu leaves it open. Y opens Board. Return to the turn menu, highlight Dice Block, and press
+A to bring up the dice. A should also confirm Items when that row is selected. In a background run, post
+X/Space, C, V, and Z for the guest A, X, Y, and B inputs.
+
+For the opening movie, leave it playing past the first forest flyover. Compare warm-cache present
+rates over the same movie interval with `SWR_SLOW_FRAME_MS=50`. In a board replay, enter and exit
+Look Around repeatedly, move the camera across multiple spaces, and check for a freeze or abnormal exit.
+
 ## When something breaks
 
 1. **Find the change.** Most fixes have a switch that turns them off (`grep -n 'getenv("SWR_' runtime/*.c`). Run
