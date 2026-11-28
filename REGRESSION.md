@@ -178,6 +178,14 @@ For the opening movie, leave it playing past the first forest flyover. Compare w
 rates over the same movie interval with `SWR_SLOW_FRAME_MS=50`. In a board replay, enter and exit
 Look Around repeatedly, move the camera across multiple spaces, and check for a freeze or abnormal exit.
 
+## Cold board-entry timing
+
+Prepare a fresh `galleria-opening` replay for each build, sharing its binaries from an immutable build
+snapshot with `_work/save-library/prepare.ps1`. Use the same controls and configuration for each run.
+With `SWR_SLOW_FRAME_MS=50`, compare `performance.txt` over the 20 seconds after the board archive
+first appears in `Recomp.log`. Record the longest frame gap, counts above 50 ms, and texture work in
+the slow frames. Keep the timing logs and clean up generated caches and replay binaries after checking.
+
 ## When something breaks
 
 1. **Find the change.** Most fixes have a switch that turns them off (`grep -n 'getenv("SWR_' runtime/*.c`). Run

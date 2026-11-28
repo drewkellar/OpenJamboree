@@ -3,6 +3,7 @@ OpenJamboree (Super Mario Party Jamboree on Switch2Recomp 0.4.1) - unreleased
 Newest first. Every change adds its line here (see AGENTS.md); details, evidence and causes are in
 docs/JAMBOREE_PORT.md under the bug number.
 
+- OpenGL uses less CPU work to unpack block-linear textures and skips a staging copy for tightly packed levels (bug 26).
 - Background tests capture screenshots only on request, cap automated bursts, and support cleaning up completed replays.
 - Save-library replays can share a build's binaries while keeping independent saves and logs.
 - Windows OpenGL prompts follow the active Xbox or Nintendo Switch Pro Controller, including the balloon selector (bug 22).
